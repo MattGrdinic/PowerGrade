@@ -52,6 +52,8 @@ const char* KernelSource = "\n" \
 "  h*=6.0f; int i=(int)floor(h); float f=h-(float)i; float p=v*(1.0f-s),q=v*(1.0f-s*f),t=v*(1.0f-s*(1.0f-f)); i=i%6; if(i<0)i+=6; \n" \
 "  if(i==0) return (float3)(v,t,p); else if(i==1) return (float3)(q,v,p); else if(i==2) return (float3)(p,v,t); \n" \
 "  else if(i==3) return (float3)(p,q,v); else if(i==4) return (float3)(t,p,v); else return (float3)(v,p,q); }   \n" \
+"inline float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); } \n" \
+"inline float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2(x/C-B)-A):(x/M); } \n" \
 "inline float pg_enc(int enc, float x){                                                                         \n" \
 "  if(enc==0) return pg_pow(fmax(x,0.0f),1.0f/2.4f);                                                             \n" \
 "  else if(enc==1){ float code=685.0f+300.0f*log10(fmax(x,1e-4f)); return fmin(fmax(code/1023.0f,0.0f),1.0f); }  \n" \
@@ -79,7 +81,7 @@ const char* KernelSource = "\n" \
 "    float3 w=pg_XYZtoDWG(pg_toXYZ(cam,lin));                                                                    \n" \
 "    w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);                                     \n" \
 "    if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } \n" \
-"    w.x=pg_pow(w.x*gain+lift,1.0f/gamma); w.y=pg_pow(w.y*gain+lift,1.0f/gamma); w.z=pg_pow(w.z*gain+lift,1.0f/gamma); \n" \
+"    w.x=pg_didec(pg_pow(pg_dienc(w.x)*gain+lift,1.0f/gamma)); w.y=pg_didec(pg_pow(pg_dienc(w.y)*gain+lift,1.0f/gamma)); w.z=pg_didec(pg_pow(pg_dienc(w.z)*gain+lift,1.0f/gamma)); \n" \
 "    float3 outc=(enc==0||enc==1)?pg_XYZto709(pg_DWGtoXYZ(w)):w;                                                 \n" \
 "    float3 e=(float3)(pg_enc(enc,outc.x),pg_enc(enc,outc.y),pg_enc(enc,outc.z));                                \n" \
 "    if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e=e+(s-e)*lutMix; }                          \n" \

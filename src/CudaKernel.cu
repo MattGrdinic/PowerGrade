@@ -49,6 +49,9 @@ __device__ void pg_hsv2rgb(const float c[3], float o[3]){
     if(i==0){o[0]=v;o[1]=t;o[2]=p;} else if(i==1){o[0]=q;o[1]=v;o[2]=p;} else if(i==2){o[0]=p;o[1]=v;o[2]=t;}
     else if(i==3){o[0]=p;o[1]=q;o[2]=v;} else if(i==4){o[0]=t;o[1]=p;o[2]=v;} else {o[0]=v;o[1]=p;o[2]=q;}
 }
+__device__ float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
+__device__ float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
+
 __device__ float pg_enc(int enc, float x){
     if(enc==0) return pg_pow(fmaxf(x,0.0f),1.0f/2.4f);
     else if(enc==1){ float code=685.0f+300.0f*log10f(fmaxf(x,1e-4f)); return fminf(fmaxf(code/1023.0f,0.0f),1.0f); }
@@ -80,7 +83,7 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
         float w[3];   pg_XYZtoDWG(xyz,w);
         w[0]*=(1.0f+temp*0.20f); w[2]*=(1.0f-temp*0.20f); w[1]*=(1.0f+tint*0.20f);
         if(density!=0.0f){ float hsv[3]; pg_rgb2hsv(w,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,w); }
-        for(int k=0;k<3;k++) w[k]=pg_pow(w[k]*gain+lift,1.0f/gamma);
+        for(int k=0;k<3;k++) w[k]=pg_didec(pg_pow(pg_dienc(w[k])*gain+lift,1.0f/gamma));
         float outc[3];
         if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};

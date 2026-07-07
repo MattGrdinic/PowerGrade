@@ -62,6 +62,9 @@ inline float3 pg_hsv2rgb(float3 c){
     else if(i==3) return float3(p,q,v); else if(i==4) return float3(t,p,v); else return float3(v,p,q);
 }
 
+inline float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); }
+inline float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2(x/C-B)-A):(x/M); }
+
 inline float pg_enc(int enc, float x){
     if(enc==0) return pg_pow(fmax(x,0.0f),1.0f/2.4f);
     else if(enc==1){ float code=685.0f+300.0f*log10(fmax(x,1e-4f)); return fmin(fmax(code/1023.0f,0.0f),1.0f); }
@@ -98,7 +101,7 @@ kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[b
         float3 w = pg_XYZtoDWG(pg_toXYZ(cam,lin));           // working: DWG linear
         w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // balance
         if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } // density
-        w.x=pg_pow(w.x*gain+lift,1.0f/gamma); w.y=pg_pow(w.y*gain+lift,1.0f/gamma); w.z=pg_pow(w.z*gain+lift,1.0f/gamma); // LGG
+        w.x=pg_didec(pg_pow(pg_dienc(w.x)*gain+lift,1.0f/gamma)); w.y=pg_didec(pg_pow(pg_dienc(w.y)*gain+lift,1.0f/gamma)); w.z=pg_didec(pg_pow(pg_dienc(w.z)*gain+lift,1.0f/gamma)); // LGG in DI-log
         float3 outc = (enc==0||enc==1) ? pg_XYZto709(pg_DWGtoXYZ(w)) : w;         // output primaries
         float3 e = float3(pg_enc(enc,outc.x), pg_enc(enc,outc.y), pg_enc(enc,outc.z));
         if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e = e + (s-e)*lutMix; }  // LUT + mix

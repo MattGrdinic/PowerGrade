@@ -121,6 +121,12 @@ static inline void hsv2rgb(float h,float s,float v,float& r,float& g,float& b)
     }
 }
 
+// DaVinci Intermediate log encode/decode (the space the tree's Lift/Gamma/Gain runs in)
+static inline float di_encode(float x)
+{ const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
+static inline float di_decode(float x)
+{ const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
+
 static inline float encode(int enc, float x)
 {
     if (enc == 0) return safe_pow(x < 0.f ? 0.f : x, 1.0f/2.4f);          // Rec.709 gamma 2.4
@@ -179,10 +185,13 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
         hsv2rgb(h,s,v,w[0],w[1],w[2]);
     }
 
-    // 5. Exposure — basic Lift / Gamma / Gain  (CDL-style: (in*gain + lift)^(1/gamma))
+    // 5. Exposure — Lift / Gamma / Gain in DaVinci Intermediate (log), like the tree's
+    //    default wheels. Running in log (not linear) makes all three behave consistently
+    //    as normal SDR wheels instead of Lift acting like an HDR/linear wheel.
     for (int i=0;i<3;i++) {
-        float v = w[i]*gain + lift;
-        w[i] = safe_pow(v, 1.0f/gamma);
+        float lg = di_encode(w[i]);
+        lg = safe_pow(lg*gain + lift, 1.0f/gamma);
+        w[i] = di_decode(lg);
     }
 
     // 6. Output: DWG -> target
