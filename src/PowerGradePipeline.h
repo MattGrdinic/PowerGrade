@@ -134,6 +134,11 @@ static inline void hsv2rgb(float h,float s,float v,float& r,float& g,float& b)
     }
 }
 
+// Rec.709 scene OETF (linear toe). LGG runs here so near-blacks stay pinned,
+// matching Resolve's timeline wheels.
+static inline float r709_enc(float L) { return (L < 0.018f) ? (4.5f*L) : (1.099f*safe_pow(L,0.45f) - 0.099f); }
+static inline float r709_dec(float V) { return (V < 0.081f) ? (V/4.5f) : safe_pow((V+0.099f)/1.099f, 1.0f/0.45f); }
+
 // DaVinci Intermediate log encode/decode (the space the tree's Lift/Gamma/Gain runs in)
 static inline float di_encode(float x)
 { const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
@@ -218,7 +223,7 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     // 5. Exposure — Lift / Gamma / Gain in DaVinci Intermediate (log), like the tree's
     //    default wheels. Running in log (not linear) makes all three behave consistently
     //    as normal SDR wheels instead of Lift acting like an HDR/linear wheel.
-    // 5. Output encode (working -> display/log)
+    // 5. Output primaries (still linear)
     float outc[3];
     if (enc == 0 || enc == 1) {           // Rec.709 primaries (display / film-LUT feed)
         float x2[3]; DWG_to_XYZ(w, x2);
@@ -226,14 +231,20 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     } else {                              // DI / Linear keep DWG primaries
         outc[0]=w[0]; outc[1]=w[1]; outc[2]=w[2];
     }
-    float e0 = encode(enc, outc[0]), e1 = encode(enc, outc[1]), e2 = encode(enc, outc[2]);
 
-    // 6. Lift / Gamma / Gain in the OUTPUT (display) space, so the wheels pivot exactly
-    //    like Resolve's primary wheels: gain @ black(0), lift @ white(1), gamma @ both.
-    //    out = (in*(gain - lift) + lift) ^ (1/gamma)
-    outR = safe_pow(e0*(gain - lift) + lift, 1.0f/gamma);
-    outG = safe_pow(e1*(gain - lift) + lift, 1.0f/gamma);
-    outB = safe_pow(e2*(gain - lift) + lift, 1.0f/gamma);
+    // 6. Lift / Gamma / Gain in Rec.709 scene-OETF space (linear toe), so the wheels
+    //    pivot like Resolve's timeline wheels: gain @ black, lift @ white, gamma @ both,
+    //    with near-blacks staying pinned. out = (in*(gain-lift) + lift)^(1/gamma)
+    for (int i=0;i<3;i++) {
+        float v = r709_enc(outc[i]);
+        v = safe_pow(v*(gain - lift) + lift, 1.0f/gamma);
+        outc[i] = r709_dec(v);
+    }
+
+    // 7. Final output encode
+    outR = encode(enc, outc[0]);
+    outG = encode(enc, outc[1]);
+    outB = encode(enc, outc[2]);
 }
 
 } // namespace pg

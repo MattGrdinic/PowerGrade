@@ -53,6 +53,8 @@ __device__ void pg_hsv2rgb(const float c[3], float o[3]){
     if(i==0){o[0]=v;o[1]=t;o[2]=p;} else if(i==1){o[0]=q;o[1]=v;o[2]=p;} else if(i==2){o[0]=p;o[1]=v;o[2]=t;}
     else if(i==3){o[0]=p;o[1]=q;o[2]=v;} else if(i==4){o[0]=t;o[1]=p;o[2]=v;} else {o[0]=v;o[1]=p;o[2]=q;}
 }
+__device__ float pg_r709e(float L){ return (L<0.018f)?(4.5f*L):(1.099f*pg_pow(L,0.45f)-0.099f); }
+__device__ float pg_r709d(float V){ return (V<0.081f)?(V/4.5f):pg_pow((V+0.099f)/1.099f,1.0f/0.45f); }
 __device__ float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
 __device__ float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
 
@@ -90,8 +92,8 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
         if(density!=0.0f){ float l[3]={pg_dienc(w[0]),pg_dienc(w[1]),pg_dienc(w[2])}; float hsv[3]; pg_rgb2hsv(l,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,l); w[0]=pg_didec(l[0]); w[1]=pg_didec(l[1]); w[2]=pg_didec(l[2]); }
         float outc[3];
         if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
+        for(int k=0;k<3;k++) outc[k]=pg_r709d(pg_pow(pg_r709e(outc[k])*(gain-lift)+lift,1.0f/gamma));  // LGG in Rec709 scene space
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
-        for(int k=0;k<3;k++) e[k]=pg_pow(e[k]*(gain-lift)+lift,1.0f/gamma);  // LGG in display space
         if(lutN>=2 && lutMix>0.0f){ float s[3]; pg_sampleLUT(lut,lutN,e,s); for(int k=0;k<3;k++) e[k]=e[k]+(s[k]-e[k])*lutMix; }
         float ex=exp2f(P[8]); for(int k=0;k<3;k++) e[k]=(e[k]*ex-0.5f)*P[9]+0.5f;  // post-LUT trim
         out[i]=e[0]; out[i+1]=e[1]; out[i+2]=e[2]; out[i+3]=in[i+3];

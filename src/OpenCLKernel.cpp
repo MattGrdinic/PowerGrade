@@ -56,6 +56,8 @@ const char* KernelSource = "\n" \
 "  h*=6.0f; int i=(int)floor(h); float f=h-(float)i; float p=v*(1.0f-s),q=v*(1.0f-s*f),t=v*(1.0f-s*(1.0f-f)); i=i%6; if(i<0)i+=6; \n" \
 "  if(i==0) return (float3)(v,t,p); else if(i==1) return (float3)(q,v,p); else if(i==2) return (float3)(p,v,t); \n" \
 "  else if(i==3) return (float3)(p,q,v); else if(i==4) return (float3)(t,p,v); else return (float3)(v,p,q); }   \n" \
+"inline float pg_r709e(float L){ return (L<0.018f)?(4.5f*L):(1.099f*pg_pow(L,0.45f)-0.099f); }                  \n" \
+"inline float pg_r709d(float V){ return (V<0.081f)?(V/4.5f):pg_pow((V+0.099f)/1.099f,1.0f/0.45f); }             \n" \
 "inline float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); } \n" \
 "inline float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2(x/C-B)-A):(x/M); } \n" \
 "inline float pg_enc(int enc, float x){                                                                         \n" \
@@ -87,8 +89,10 @@ const char* KernelSource = "\n" \
 "    w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;                                                 \n" \
 "    if(density!=0.0f){ float3 l=(float3)(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=(float3)(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } \n" \
 "    float3 outc=(enc==0||enc==1)?pg_XYZto709(pg_DWGtoXYZ(w)):w;                                                 \n" \
+"    outc.x=pg_r709d(pg_pow(pg_r709e(outc.x)*(gain-lift)+lift,1.0f/gamma));                                       \n" \
+"    outc.y=pg_r709d(pg_pow(pg_r709e(outc.y)*(gain-lift)+lift,1.0f/gamma));                                       \n" \
+"    outc.z=pg_r709d(pg_pow(pg_r709e(outc.z)*(gain-lift)+lift,1.0f/gamma));                                       \n" \
 "    float3 e=(float3)(pg_enc(enc,outc.x),pg_enc(enc,outc.y),pg_enc(enc,outc.z));                                \n" \
-"    e.x=pg_pow(e.x*(gain-lift)+lift,1.0f/gamma); e.y=pg_pow(e.y*(gain-lift)+lift,1.0f/gamma); e.z=pg_pow(e.z*(gain-lift)+lift,1.0f/gamma); \n" \
 "    if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e=e+(s-e)*lutMix; }                          \n" \
 "    float ex=exp2(postExp); e=(e*ex-0.5f)*postCon+0.5f;                                                         \n" \
 "    out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];                                                  \n" \
