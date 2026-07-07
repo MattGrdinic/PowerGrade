@@ -98,11 +98,12 @@ kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[b
 {
     if(id.x<(uint)W && id.y<(uint)H){
         int i=((id.y*W)+id.x)*4;
-        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5];
+        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7];
         float3 lin = float3(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]));
         float3 w = pg_XYZtoDWG(pg_toXYZ(cam,lin));           // working: DWG linear
-        w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // balance
-        if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } // density
+        w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // gain balance
+        w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;               // offset balance
+        if(density!=0.0f){ float3 l=float3(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=float3(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } // density in DI-log
         float3 outc = (enc==0||enc==1) ? pg_XYZto709(pg_DWGtoXYZ(w)) : w;         // output primaries
         float3 e = float3(pg_enc(enc,outc.x), pg_enc(enc,outc.y), pg_enc(enc,outc.z));
         e.x=pg_pow(e.x*(gain-lift)+lift,1.0f/gamma); e.y=pg_pow(e.y*(gain-lift)+lift,1.0f/gamma); e.z=pg_pow(e.z*(gain-lift)+lift,1.0f/gamma); // LGG in display space
@@ -188,7 +189,7 @@ void RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Para
     [computeEncoder setBuffer:dstDeviceBuf offset:0 atIndex:8];
     [computeEncoder setBytes:&p_Width  length:sizeof(int) atIndex:11];
     [computeEncoder setBytes:&p_Height length:sizeof(int) atIndex:12];
-    [computeEncoder setBytes:p_Params  length:sizeof(float)*6 atIndex:13];
+    [computeEncoder setBytes:p_Params  length:sizeof(float)*8 atIndex:13];
     [computeEncoder setBytes:&p_Camera length:sizeof(int) atIndex:14];
     [computeEncoder setBytes:&p_Encode length:sizeof(int) atIndex:15];
     [computeEncoder setBytes:&lutN     length:sizeof(int) atIndex:16];

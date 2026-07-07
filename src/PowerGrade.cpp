@@ -31,7 +31,7 @@
 #define kSupportsMultiResolution    false
 #define kSupportsMultipleClipPARs   false
 
-#define kParamCount 6  // temp,tint,density,lift,gamma,gain
+#define kParamCount 8  // temp,tint,density,lift,gamma,gain,offTemp,offTint
 
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
 #define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
@@ -235,6 +235,8 @@ private:
     OFX::ChoiceParam* m_Camera;
     OFX::DoubleParam* m_Temp;
     OFX::DoubleParam* m_Tint;
+    OFX::DoubleParam* m_OffTemp;
+    OFX::DoubleParam* m_OffTint;
     OFX::DoubleParam* m_Density;
     OFX::DoubleParam* m_Lift;
     OFX::DoubleParam* m_Gamma;
@@ -258,6 +260,8 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
     m_Camera  = fetchChoiceParam("camera");
     m_Temp    = fetchDoubleParam("temp");
     m_Tint    = fetchDoubleParam("tint");
+    m_OffTemp = fetchDoubleParam("offTemp");
+    m_OffTint = fetchDoubleParam("offTint");
     m_Density = fetchDoubleParam("density");
     m_Lift    = fetchDoubleParam("lift");
     m_Gamma   = fetchDoubleParam("gamma");
@@ -342,6 +346,8 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     params[3] = (float)m_Lift->getValueAtTime(p_Args.time);
     params[4] = (float)m_Gamma->getValueAtTime(p_Args.time);
     params[5] = (float)m_Gain->getValueAtTime(p_Args.time);
+    params[6] = (float)m_OffTemp->getValueAtTime(p_Args.time);
+    params[7] = (float)m_OffTint->getValueAtTime(p_Args.time);
 
     // Resolve the active LUT (path from mode) and load it (cached by path).
     std::string lutPath;
@@ -457,8 +463,21 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     // ---- 2. Balance ----  (white balance in linear; watch the vectorscope while adjusting)
     GroupParamDescriptor* gBal = p_Desc.defineGroupParam("gBalance");
     gBal->setLabels("2  Balance", "2  Balance", "2  Balance");
-    page->addChild(*defineSlider(p_Desc, "temp", "Temperature", "Warm (+) / cool (-) balance, in linear. Watch the vectorscope.", 0.0, -1.0, 1.0, 0.001, gBal));
-    page->addChild(*defineSlider(p_Desc, "tint", "Tint",        "Green (+) / magenta (-) balance, in linear. Watch the vectorscope.", 0.0, -1.0, 1.0, 0.001, gBal));
+    {
+        StringParamDescriptor* tip = p_Desc.defineStringParam("balanceTip");
+        tip->setLabels("Tip", "Tip", "Tip");
+        tip->setStringType(eStringTypeLabel);
+        tip->setDefault("Open the Vectorscope while adjusting. Offset = even balance across all tones; Gain = neutral highlights.");
+        tip->setEnabled(false);
+        tip->setParent(*gBal);
+        page->addChild(*tip);
+    }
+    // Offset balance (additive) — shifts every tone's chroma evenly; best for stubborn casts.
+    page->addChild(*defineSlider(p_Desc, "offTemp", "Offset Temp", "Warm (+) / cool (-) balance, additive (Offset wheel). Even across all tones.", 0.0, -1.0, 1.0, 0.001, gBal));
+    page->addChild(*defineSlider(p_Desc, "offTint", "Offset Tint", "Green (+) / magenta (-) balance, additive (Offset wheel). Even across all tones.", 0.0, -1.0, 1.0, 0.001, gBal));
+    // Gain balance (multiplicative) — keeps highlights neutral.
+    page->addChild(*defineSlider(p_Desc, "temp", "Gain Temp", "Warm (+) / cool (-) balance, multiplicative (Gain wheel). Neutral highlights.", 0.0, -1.0, 1.0, 0.001, gBal));
+    page->addChild(*defineSlider(p_Desc, "tint", "Gain Tint", "Green (+) / magenta (-) balance, multiplicative (Gain wheel). Neutral highlights.", 0.0, -1.0, 1.0, 0.001, gBal));
 
     // ---- 3. Density ----  (HSV saturation gain — the green-of-Gain-in-HSV trick)
     GroupParamDescriptor* gDen = p_Desc.defineGroupParam("gDensity");

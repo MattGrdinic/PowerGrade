@@ -73,7 +73,7 @@ const char* KernelSource = "\n" \
 "    float c0=c00*(1-fg)+c10*fg,c1=c01*(1-fg)+c11*fg; res[ch]=c0*(1-fb)+c1*fb; }                                \n" \
 "  return (float3)(res[0],res[1],res[2]); }                                                                     \n" \
 "__kernel void PowerGradeKernel(int W,int H,int cam,int enc,                                                    \n" \
-"  float temp,float tint,float density,float lift,float gamma,float gain,                                       \n" \
+"  float temp,float tint,float density,float lift,float gamma,float gain,float offTemp,float offTint,           \n" \
 "  int lutN, float lutMix, __global const float* lut,                                                           \n" \
 "  __global const float* in, __global float* out) {                                                             \n" \
 "  const int x=get_global_id(0); const int y=get_global_id(1);                                                  \n" \
@@ -82,7 +82,8 @@ const char* KernelSource = "\n" \
 "    float3 lin=(float3)(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]));                   \n" \
 "    float3 w=pg_XYZtoDWG(pg_toXYZ(cam,lin));                                                                    \n" \
 "    w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);                                     \n" \
-"    if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } \n" \
+"    w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;                                                 \n" \
+"    if(density!=0.0f){ float3 l=(float3)(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=(float3)(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } \n" \
 "    float3 outc=(enc==0||enc==1)?pg_XYZto709(pg_DWGtoXYZ(w)):w;                                                 \n" \
 "    float3 e=(float3)(pg_enc(enc,outc.x),pg_enc(enc,outc.y),pg_enc(enc,outc.z));                                \n" \
 "    e.x=pg_pow(e.x*(gain-lift)+lift,1.0f/gamma); e.y=pg_pow(e.y*(gain-lift)+lift,1.0f/gamma); e.z=pg_pow(e.z*(gain-lift)+lift,1.0f/gamma); \n" \
@@ -194,7 +195,7 @@ void RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Camera);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Encode);
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 8; ++i)
         error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Params[i]);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &lutN);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_LutMix);

@@ -169,7 +169,7 @@ static inline void apply_lut(const float* lut, int N, float mix,
 static inline void process(int cam, int enc, const float* P, float inR, float inG, float inB,
                            float& outR, float& outG, float& outB)
 {
-    const float temp=P[0], tint=P[1], density=P[2], lift=P[3], gamma=P[4], gain=P[5];
+    const float temp=P[0], tint=P[1], density=P[2], lift=P[3], gamma=P[4], gain=P[5], offTemp=P[6], offTint=P[7];
 
     // 1-2. decode + into DWG-linear working space
     float lin[3] = { decode_log(cam,inR), decode_log(cam,inG), decode_log(cam,inB) };
@@ -177,15 +177,23 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     float w[3];   XYZ_to_DWG(xyz, w);
 
     // 3. Balance (2-axis white balance in linear)
+    //    Gain (multiplicative) — neutral highlights
     w[0] *= (1.0f + temp*0.20f);
     w[2] *= (1.0f - temp*0.20f);
     w[1] *= (1.0f + tint*0.20f);
+    //    Offset (additive) — shifts every tone's chroma evenly (best for stubborn casts)
+    w[0] += offTemp*0.10f;
+    w[2] -= offTemp*0.10f;
+    w[1] += offTint*0.10f;
 
-    // 4. Density (HSV saturation gain — the "green of Gain in HSV" trick)
+    // 4. Density (HSV saturation gain in DI-log — the "green of Gain in HSV" trick).
+    //    Run in log (not linear) so saturated highlights get richer instead of blowing out.
     if (density != 0.0f) {
-        float h,s,v; rgb2hsv(w[0],w[1],w[2],h,s,v);
+        float l0=di_encode(w[0]), l1=di_encode(w[1]), l2=di_encode(w[2]);
+        float h,s,v; rgb2hsv(l0,l1,l2,h,s,v);
         s = clamp01(s * (1.0f + density));
-        hsv2rgb(h,s,v,w[0],w[1],w[2]);
+        hsv2rgb(h,s,v,l0,l1,l2);
+        w[0]=di_decode(l0); w[1]=di_decode(l1); w[2]=di_decode(l2);
     }
 
     // 5. Exposure — Lift / Gamma / Gain in DaVinci Intermediate (log), like the tree's

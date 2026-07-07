@@ -79,12 +79,13 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
     const int y=blockIdx.y*blockDim.y+threadIdx.y;
     if(x<W && y<H){
         const int i=((y*W)+x)*4;
-        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5];
+        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7];
         float lin[3]={pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2])};
         float xyz[3]; pg_toXYZ(cam,lin,xyz);
         float w[3];   pg_XYZtoDWG(xyz,w);
         w[0]*=(1.0f+temp*0.20f); w[2]*=(1.0f-temp*0.20f); w[1]*=(1.0f+tint*0.20f);
-        if(density!=0.0f){ float hsv[3]; pg_rgb2hsv(w,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,w); }
+        w[0]+=offTemp*0.10f; w[2]-=offTemp*0.10f; w[1]+=offTint*0.10f;
+        if(density!=0.0f){ float l[3]={pg_dienc(w[0]),pg_dienc(w[1]),pg_dienc(w[2])}; float hsv[3]; pg_rgb2hsv(l,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,l); w[0]=pg_didec(l[0]); w[1]=pg_didec(l[1]); w[2]=pg_didec(l[2]); }
         float outc[3];
         if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
@@ -102,8 +103,8 @@ void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Par
     dim3 blocks((p_Width + threads.x - 1) / threads.x, (p_Height + threads.y - 1) / threads.y, 1);
 
     float* d_params = nullptr;
-    cudaMalloc(&d_params, sizeof(float) * 6);
-    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 6, cudaMemcpyHostToDevice, stream);
+    cudaMalloc(&d_params, sizeof(float) * 8);
+    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 8, cudaMemcpyHostToDevice, stream);
 
     int lutN = (p_Lut && p_LutSize >= 2) ? p_LutSize : 0;
     float* d_lut = nullptr;
