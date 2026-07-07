@@ -505,7 +505,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gOut->setLabels("5  Output", "5  Output", "5  Output");
     ChoiceParamDescriptor* enc = p_Desc.defineChoiceParam("outEncode");
     enc->setLabels("Output Encode", "Output Encode", "Output Encode");
-    enc->setHint("Final transform from working space. Applies when LUT Mode = None. (When a LUT is active it is set automatically: Film Look -> Cineon, Custom Look -> Rec.709.)");
+    enc->setHint("Match your project's Timeline Color Space. With the recommended setup (see Setup / Help) leave this on Rec.709 (Scene). Applies when LUT Mode = None; a LUT auto-sets it (Film Look -> Cineon, Custom Look -> Rec.709).");
     enc->appendOption("Rec.709 (Scene)");
     enc->appendOption("Cineon Log (feed film LUT)");
     enc->appendOption("DaVinci Intermediate");
@@ -586,6 +586,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     helpLine("help3", "Output Color Space", "Same as Timeline");
     helpLine("help4", "Clips", "Leave at camera raw/log defaults - no input CST or LUT before this node.");
     helpLine("help5", "Camera control", "Set it to match the source footage; this node does the input transform.");
+    helpLine("help6", "Output Encode", "Leave on Rec.709 (Scene) to match the timeline above; change only if your timeline differs.");
 }
 
 ImageEffect* PowerGradeFactory::createInstance(OfxImageEffectHandle p_Handle, ContextEnum /*p_Context*/)
