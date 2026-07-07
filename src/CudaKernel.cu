@@ -83,7 +83,7 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
         float w[3];   pg_XYZtoDWG(xyz,w);
         w[0]*=(1.0f+temp*0.20f); w[2]*=(1.0f-temp*0.20f); w[1]*=(1.0f+tint*0.20f);
         if(density!=0.0f){ float hsv[3]; pg_rgb2hsv(w,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,w); }
-        for(int k=0;k<3;k++) w[k]=pg_didec(pg_pow(pg_dienc(w[k])*gain+lift,1.0f/gamma));
+        for(int k=0;k<3;k++) w[k]=pg_didec(pg_pow(pg_dienc(w[k])*(gain-lift)+lift,1.0f/gamma));
         float outc[3];
         if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};

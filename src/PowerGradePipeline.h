@@ -188,9 +188,10 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     // 5. Exposure — Lift / Gamma / Gain in DaVinci Intermediate (log), like the tree's
     //    default wheels. Running in log (not linear) makes all three behave consistently
     //    as normal SDR wheels instead of Lift acting like an HDR/linear wheel.
+    //  DaVinci Lift/Gamma/Gain: gain pivots black, lift pivots white, gamma pivots both.
     for (int i=0;i<3;i++) {
         float lg = di_encode(w[i]);
-        lg = safe_pow(lg*gain + lift, 1.0f/gamma);
+        lg = safe_pow(lg*(gain - lift) + lift, 1.0f/gamma);
         w[i] = di_decode(lg);
     }
 

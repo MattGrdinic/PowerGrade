@@ -81,7 +81,7 @@ const char* KernelSource = "\n" \
 "    float3 w=pg_XYZtoDWG(pg_toXYZ(cam,lin));                                                                    \n" \
 "    w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);                                     \n" \
 "    if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } \n" \
-"    w.x=pg_didec(pg_pow(pg_dienc(w.x)*gain+lift,1.0f/gamma)); w.y=pg_didec(pg_pow(pg_dienc(w.y)*gain+lift,1.0f/gamma)); w.z=pg_didec(pg_pow(pg_dienc(w.z)*gain+lift,1.0f/gamma)); \n" \
+"    w.x=pg_didec(pg_pow(pg_dienc(w.x)*(gain-lift)+lift,1.0f/gamma)); w.y=pg_didec(pg_pow(pg_dienc(w.y)*(gain-lift)+lift,1.0f/gamma)); w.z=pg_didec(pg_pow(pg_dienc(w.z)*(gain-lift)+lift,1.0f/gamma)); \n" \
 "    float3 outc=(enc==0||enc==1)?pg_XYZto709(pg_DWGtoXYZ(w)):w;                                                 \n" \
 "    float3 e=(float3)(pg_enc(enc,outc.x),pg_enc(enc,outc.y),pg_enc(enc,outc.z));                                \n" \
 "    if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e=e+(s-e)*lutMix; }                          \n" \
