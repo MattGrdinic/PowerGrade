@@ -11,6 +11,7 @@
 #include <vector>
 #include <utility>
 #include <algorithm>
+#include <map>
 #include <filesystem>
 
 #include "ofxsImageEffect.h"
@@ -30,24 +31,25 @@
 #define kSupportsMultiResolution    false
 #define kSupportsMultipleClipPARs   false
 
-#define kParamCount 6  // temp,tint,density,lift,gamma,gain
+#define kParamCount 10 // temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon
 
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
 #define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
 
-// (label, absolute path) of every .cube found under kFilmLutDir. Built once at describe.
-static std::vector<std::pair<std::string, std::string>> s_FilmLuts;
+// LUT lists, built once at describe.
+typedef std::vector<std::pair<std::string, std::string>> LutList;   // (label, absolute path)
+typedef std::pair<std::string, LutList> LutGroup;                   // (group name, luts)
+
+//   s_FilmLuts: Resolve's "Film Looks" folder (print-emulation, need Cineon input).
+//   s_LookGroups: the whole master LUT folder, grouped by top-level subfolder (Group -> LUT cascade).
+static LutList s_FilmLuts;
+static std::vector<LutGroup> s_LookGroups;
 static bool s_Scanned = false;
 
-static void scanFilmLuts()
+static void scanDir(const std::string& root, LutList& out)
 {
-    if (s_Scanned) return;
-    s_Scanned = true;
     namespace fs = std::filesystem;
     std::error_code ec;
-    // Prefer Resolve's dedicated "Film Looks" folder (print-emulation LUTs); else the whole LUT tree.
-    std::string root = std::string(kFilmLutDir) + "/Film Looks";
-    if (!fs::exists(root, ec)) root = kFilmLutDir;
     if (!fs::exists(root, ec)) return;
     for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
          it != end; it.increment(ec))
@@ -57,12 +59,41 @@ static void scanFilmLuts()
         const fs::path& p = it->path();
         std::string ext = p.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        if (ext == ".cube") {
-            s_FilmLuts.emplace_back(p.stem().string(), p.string());
-            if (s_FilmLuts.size() >= 500) break;
+        if (ext == ".cube") { out.emplace_back(p.stem().string(), p.string()); if (out.size() >= 1000) break; }
+    }
+    std::sort(out.begin(), out.end());
+}
+
+static void scanLuts()
+{
+    if (s_Scanned) return;
+    s_Scanned = true;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    std::string filmDir = std::string(kFilmLutDir) + "/Film Looks";
+    scanDir(fs::exists(filmDir, ec) ? filmDir : kFilmLutDir, s_FilmLuts);
+
+    // Group the whole master folder by top-level subfolder (files in root -> "General").
+    std::map<std::string, LutList> groups;
+    if (fs::exists(kFilmLutDir, ec)) {
+        for (fs::recursive_directory_iterator it(kFilmLutDir, fs::directory_options::skip_permission_denied, ec), end;
+             it != end; it.increment(ec))
+        {
+            if (ec) break;
+            if (!it->is_regular_file(ec)) continue;
+            const fs::path& p = it->path();
+            std::string ext = p.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext != ".cube") continue;
+            std::error_code ec2;
+            fs::path rel = fs::relative(p, kFilmLutDir, ec2);
+            std::string group = rel.has_parent_path() ? rel.begin()->string() : "General";
+            groups[group].emplace_back(p.stem().string(), p.string());
         }
     }
-    std::sort(s_FilmLuts.begin(), s_FilmLuts.end());
+    for (auto& g : groups) { std::sort(g.second.begin(), g.second.end()); s_LookGroups.emplace_back(g.first, g.second); }
+    // std::map already sorts group names alphabetically.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -158,6 +189,7 @@ void PowerGradeProcessor::multiThreadProcessImages(OfxRectI p_ProcWindow)
                             dstPix[0], dstPix[1], dstPix[2]);
                 if (_lut && _lutSize >= 2 && _lutMix > 0.0f)
                     pg::apply_lut(_lut, _lutSize, _lutMix, dstPix[0], dstPix[1], dstPix[2]);
+                pg::apply_trim(_params[8], _params[9], dstPix[0], dstPix[1], dstPix[2]);  // post-LUT trim
                 dstPix[3] = srcPix[3];
             }
             else
@@ -192,6 +224,9 @@ class PowerGrade : public OFX::ImageEffect
 public:
     explicit PowerGrade(OfxImageEffectHandle p_Handle);
     virtual void render(const OFX::RenderArguments& p_Args);
+    virtual void changedParam(const OFX::InstanceChangedArgs& p_Args, const std::string& p_ParamName);
+    void setEnabledness();
+    void populateLookLut();     // repopulate the Look LUT dropdown for the current group
     void setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderArguments& p_Args);
 
 private:
@@ -201,15 +236,20 @@ private:
     OFX::ChoiceParam* m_Camera;
     OFX::DoubleParam* m_Temp;
     OFX::DoubleParam* m_Tint;
+    OFX::DoubleParam* m_OffTemp;
+    OFX::DoubleParam* m_OffTint;
     OFX::DoubleParam* m_Density;
     OFX::DoubleParam* m_Lift;
     OFX::DoubleParam* m_Gamma;
     OFX::DoubleParam* m_Gain;
     OFX::ChoiceParam* m_Encode;
+    OFX::DoubleParam* m_PostExp;
+    OFX::DoubleParam* m_PostCon;
 
-    OFX::ChoiceParam* m_LutMode;    // 0 none, 1 custom look file, 2 film-look built-in
+    OFX::ChoiceParam* m_LutMode;    // 0 none, 1 custom look, 2 film-look built-in
     OFX::ChoiceParam* m_FilmLut;
-    OFX::StringParam* m_LookFile;
+    OFX::ChoiceParam* m_LookGroup;
+    OFX::ChoiceParam* m_LookLut;
     OFX::DoubleParam* m_LutMix;
     CubeLUT           m_Lut;        // cached loaded LUT
 };
@@ -223,16 +263,53 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
     m_Camera  = fetchChoiceParam("camera");
     m_Temp    = fetchDoubleParam("temp");
     m_Tint    = fetchDoubleParam("tint");
+    m_OffTemp = fetchDoubleParam("offTemp");
+    m_OffTint = fetchDoubleParam("offTint");
     m_Density = fetchDoubleParam("density");
     m_Lift    = fetchDoubleParam("lift");
     m_Gamma   = fetchDoubleParam("gamma");
     m_Gain    = fetchDoubleParam("gain");
     m_Encode  = fetchChoiceParam("outEncode");
+    m_PostExp = fetchDoubleParam("postExp");
+    m_PostCon = fetchDoubleParam("postCon");
 
-    m_LutMode = fetchChoiceParam("lutMode");
-    m_FilmLut = fetchChoiceParam("filmLut");
-    m_LookFile= fetchStringParam("lookLutFile");
-    m_LutMix  = fetchDoubleParam("lutMix");
+    m_LutMode  = fetchChoiceParam("lutMode");
+    m_FilmLut  = fetchChoiceParam("filmLut");
+    m_LookGroup= fetchChoiceParam("lookGroup");
+    m_LookLut  = fetchChoiceParam("lookLut");
+    m_LutMix   = fetchDoubleParam("lutMix");
+
+    populateLookLut();
+    setEnabledness();
+}
+
+// Mutually exclusive: Film Look and Custom Look can't be used together.
+void PowerGrade::setEnabledness()
+{
+    int mode = 0;
+    m_LutMode->getValue(mode);
+    m_FilmLut->setEnabled(mode == 2);
+    m_LookGroup->setEnabled(mode == 1);
+    m_LookLut->setEnabled(mode == 1);
+    m_LutMix->setEnabled(mode != 0);
+}
+
+// Rebuild the Look LUT dropdown to list only the currently selected group's LUTs.
+void PowerGrade::populateLookLut()
+{
+    int gi = 0;
+    m_LookGroup->getValue(gi);
+    m_LookLut->resetOptions();
+    if (gi >= 0 && gi < (int)s_LookGroups.size() && !s_LookGroups[gi].second.empty())
+        for (const auto& f : s_LookGroups[gi].second) m_LookLut->appendOption(f.first);
+    else
+        m_LookLut->appendOption("(none)");
+}
+
+void PowerGrade::changedParam(const OFX::InstanceChangedArgs& /*p_Args*/, const std::string& p_ParamName)
+{
+    if (p_ParamName == "lutMode") setEnabledness();
+    else if (p_ParamName == "lookGroup") { populateLookLut(); m_LookLut->setValue(0); }
 }
 
 void PowerGrade::render(const OFX::RenderArguments& p_Args)
@@ -264,7 +341,7 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     // Couple the pre-LUT encoding to the LUT path so the two can't mismatch:
     //   Film Look LUTs require Cineon log input; Custom look LUTs use Rec.709.
     if (lutMode == 2)      encode = 1;   // Film Look  -> Cineon Log
-    else if (lutMode == 1) encode = 0;   // Custom Look -> Rec.709 Gamma 2.4
+    else if (lutMode == 1) encode = 0;   // Custom Look -> Rec.709 (Scene)
     // lutMode == 0 (None) -> user's Output Encode is used unchanged
 
     float params[kParamCount];
@@ -274,11 +351,22 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     params[3] = (float)m_Lift->getValueAtTime(p_Args.time);
     params[4] = (float)m_Gamma->getValueAtTime(p_Args.time);
     params[5] = (float)m_Gain->getValueAtTime(p_Args.time);
+    params[6] = (float)m_OffTemp->getValueAtTime(p_Args.time);
+    params[7] = (float)m_OffTint->getValueAtTime(p_Args.time);
+    params[8] = (float)m_PostExp->getValueAtTime(p_Args.time);
+    params[9] = (float)m_PostCon->getValueAtTime(p_Args.time);
 
     // Resolve the active LUT (path from mode) and load it (cached by path).
     std::string lutPath;
-    if (lutMode == 1) { m_LookFile->getValueAtTime(p_Args.time, lutPath); }
-    else if (lutMode == 2) {
+    if (lutMode == 1) {
+        int gi = 0, li = 0;
+        m_LookGroup->getValueAtTime(p_Args.time, gi);
+        m_LookLut->getValueAtTime(p_Args.time, li);
+        if (gi >= 0 && gi < (int)s_LookGroups.size()) {
+            const LutList& luts = s_LookGroups[gi].second;
+            if (li >= 0 && li < (int)luts.size()) lutPath = luts[li].second;
+        }
+    } else if (lutMode == 2) {
         int idx = 0; m_FilmLut->getValueAtTime(p_Args.time, idx);
         if (idx >= 0 && idx < (int)s_FilmLuts.size()) lutPath = s_FilmLuts[idx].second;
     }
@@ -374,6 +462,9 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     cam->appendOption("RED Log3G10");
     cam->appendOption("DJI D-Log");
     cam->appendOption("Fuji F-Log2");
+    cam->appendOption("Panasonic V-Log");
+    cam->appendOption("Rec.2100 HLG (HDR)");
+    cam->appendOption("Rec.2100 PQ / ST.2084 (HDR)");
     cam->setDefault(0);
     cam->setParent(*gInput);
     page->addChild(*cam);
@@ -381,8 +472,21 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     // ---- 2. Balance ----  (white balance in linear; watch the vectorscope while adjusting)
     GroupParamDescriptor* gBal = p_Desc.defineGroupParam("gBalance");
     gBal->setLabels("2  Balance", "2  Balance", "2  Balance");
-    page->addChild(*defineSlider(p_Desc, "temp", "Temperature", "Warm (+) / cool (-) balance, in linear. Watch the vectorscope.", 0.0, -1.0, 1.0, 0.001, gBal));
-    page->addChild(*defineSlider(p_Desc, "tint", "Tint",        "Green (+) / magenta (-) balance, in linear. Watch the vectorscope.", 0.0, -1.0, 1.0, 0.001, gBal));
+    {
+        StringParamDescriptor* tip = p_Desc.defineStringParam("balanceTip");
+        tip->setLabels("Tip", "Tip", "Tip");
+        tip->setStringType(eStringTypeLabel);
+        tip->setDefault("Open the Vectorscope while adjusting. Offset = even balance across all tones; Gain = neutral highlights.");
+        tip->setEnabled(false);
+        tip->setParent(*gBal);
+        page->addChild(*tip);
+    }
+    // Offset balance (additive) — shifts every tone's chroma evenly; best for stubborn casts.
+    page->addChild(*defineSlider(p_Desc, "offTemp", "Offset Temp", "Warm (+) / cool (-) balance, additive (Offset wheel). Even across all tones.", 0.0, -1.0, 1.0, 0.001, gBal));
+    page->addChild(*defineSlider(p_Desc, "offTint", "Offset Tint", "Green (+) / magenta (-) balance, additive (Offset wheel). Even across all tones.", 0.0, -1.0, 1.0, 0.001, gBal));
+    // Gain balance (multiplicative) — keeps highlights neutral.
+    page->addChild(*defineSlider(p_Desc, "temp", "Gain Temp", "Warm (+) / cool (-) balance, multiplicative (Gain wheel). Neutral highlights.", 0.0, -1.0, 1.0, 0.001, gBal));
+    page->addChild(*defineSlider(p_Desc, "tint", "Gain Tint", "Green (+) / magenta (-) balance, multiplicative (Gain wheel). Neutral highlights.", 0.0, -1.0, 1.0, 0.001, gBal));
 
     // ---- 3. Density ----  (HSV saturation gain — the green-of-Gain-in-HSV trick)
     GroupParamDescriptor* gDen = p_Desc.defineGroupParam("gDensity");
@@ -401,8 +505,8 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gOut->setLabels("5  Output", "5  Output", "5  Output");
     ChoiceParamDescriptor* enc = p_Desc.defineChoiceParam("outEncode");
     enc->setLabels("Output Encode", "Output Encode", "Output Encode");
-    enc->setHint("Final transform from working space. Applies when LUT Mode = None. (When a LUT is active it is set automatically: Film Look -> Cineon, Custom Look -> Rec.709.)");
-    enc->appendOption("Rec.709 Gamma 2.4");
+    enc->setHint("Match your project's Timeline Color Space. With the recommended setup (see Setup / Help) leave this on Rec.709 (Scene). Applies when LUT Mode = None; a LUT auto-sets it (Film Look -> Cineon, Custom Look -> Rec.709).");
+    enc->appendOption("Rec.709 (Scene)");
     enc->appendOption("Cineon Log (feed film LUT)");
     enc->appendOption("DaVinci Intermediate");
     enc->appendOption("Linear");
@@ -411,15 +515,15 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     page->addChild(*enc);
 
     // ---- 6. Look / Film LUT ----
-    scanFilmLuts();
+    scanLuts();
     GroupParamDescriptor* gLut = p_Desc.defineGroupParam("gLut");
     gLut->setLabels("6  Look / Film LUT", "6  Look / Film LUT", "6  Look / Film LUT");
 
     ChoiceParamDescriptor* lutMode = p_Desc.defineChoiceParam("lutMode");
     lutMode->setLabels("LUT Mode", "LUT Mode", "LUT Mode");
-    lutMode->setHint("None; a custom Look LUT file (Rec.709 path); or a built-in Film Look LUT (use with Output = Cineon Log).");
+    lutMode->setHint("None; a Custom Look LUT (Rec.709 path); or a built-in Film Look (Cineon path). Film and Look are mutually exclusive.");
     lutMode->appendOption("None");
-    lutMode->appendOption("Custom Look LUT (file)");
+    lutMode->appendOption("Custom Look LUT");
     lutMode->appendOption("Film Look (built-in)");
     lutMode->setDefault(0);
     lutMode->setParent(*gLut);
@@ -427,21 +531,62 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
 
     ChoiceParamDescriptor* filmLut = p_Desc.defineChoiceParam("filmLut");
     filmLut->setLabels("Film Look LUT", "Film Look LUT", "Film Look LUT");
-    filmLut->setHint("Built-in film-look LUT scanned from Resolve's LUT folder. Active when LUT Mode = Film Look.");
+    filmLut->setHint("Built-in film-look LUT (Resolve's Film Looks). Active when LUT Mode = Film Look; encodes to Cineon automatically.");
     if (s_FilmLuts.empty()) filmLut->appendOption("(no .cube LUTs found)");
     else for (const auto& fl : s_FilmLuts) filmLut->appendOption(fl.first);
     filmLut->setDefault(0);
     filmLut->setParent(*gLut);
     page->addChild(*filmLut);
 
-    StringParamDescriptor* lookFile = p_Desc.defineStringParam("lookLutFile");
-    lookFile->setLabels("Look LUT File", "Look LUT File", "Look LUT File");
-    lookFile->setHint("Your own .cube look LUT. Active when LUT Mode = Custom Look LUT.");
-    lookFile->setStringType(eStringTypeFilePath);
-    lookFile->setParent(*gLut);
-    page->addChild(*lookFile);
+    // Look LUT: two-level cascade (Group -> LUT) to tame the big master-folder list.
+    ChoiceParamDescriptor* lookGroup = p_Desc.defineChoiceParam("lookGroup");
+    lookGroup->setLabels("Look LUT Group", "Look LUT Group", "Look LUT Group");
+    lookGroup->setHint("LUT category (top-level folder in Resolve's LUT directory). Active when LUT Mode = Custom Look.");
+    if (s_LookGroups.empty()) lookGroup->appendOption("(no .cube LUTs found)");
+    else for (const auto& g : s_LookGroups) lookGroup->appendOption(g.first);
+    lookGroup->setDefault(0);
+    lookGroup->setParent(*gLut);
+    page->addChild(*lookGroup);
+
+    ChoiceParamDescriptor* lookLut = p_Desc.defineChoiceParam("lookLut");
+    lookLut->setLabels("Look LUT", "Look LUT", "Look LUT");
+    lookLut->setHint("LUT within the selected group. Active when LUT Mode = Custom Look; applied on the Rec.709 path.");
+    if (!s_LookGroups.empty() && !s_LookGroups[0].second.empty())
+        for (const auto& f : s_LookGroups[0].second) lookLut->appendOption(f.first);   // first group; repopulated per instance
+    else
+        lookLut->appendOption("(none)");
+    lookLut->setDefault(0);
+    lookLut->setParent(*gLut);
+    page->addChild(*lookLut);
 
     page->addChild(*defineSlider(p_Desc, "lutMix", "LUT Mix", "LUT output level / strength (like Key Output). 0 = off, 1 = full.", 1.0, 0.0, 1.0, 0.001, gLut));
+
+    // ---- 7. Trim (after LUT) ----  final display-space trims on top of the look/LUT
+    GroupParamDescriptor* gTrim = p_Desc.defineGroupParam("gTrim");
+    gTrim->setLabels("7  Trim (after LUT)", "7  Trim (after LUT)", "7  Trim (after LUT)");
+    page->addChild(*defineSlider(p_Desc, "postExp", "Exposure", "Post-LUT exposure trim in stops. Bring brightness back after a film-emulation LUT.", 0.0, -3.0, 3.0, 0.01, gTrim));
+    page->addChild(*defineSlider(p_Desc, "postCon", "Contrast", "Post-LUT contrast trim about mid (0.5), applied after the LUT.", 1.0, 0.0, 2.0, 0.001, gTrim));
+
+    // ---- 8. Setup / Help ----
+    GroupParamDescriptor* gHelp = p_Desc.defineGroupParam("gHelp");
+    gHelp->setLabels("8  Setup / Help", "8  Setup / Help", "8  Setup / Help");
+    gHelp->setOpen(false);
+    auto helpLine = [&](const char* name, const char* label, const char* text) {
+        StringParamDescriptor* s = p_Desc.defineStringParam(name);
+        s->setLabels(label, label, label);
+        s->setStringType(eStringTypeLabel);
+        s->setDefault(text);
+        s->setEnabled(false);
+        s->setParent(*gHelp);
+        page->addChild(*s);
+    };
+    helpLine("help0", "Requires", "Project > Color Management set to (not color managed):");
+    helpLine("help1", "Color Science", "DaVinci YRGB");
+    helpLine("help2", "Timeline Color Space", "Rec.709 (Scene)");
+    helpLine("help3", "Output Color Space", "Same as Timeline");
+    helpLine("help4", "Clips", "Leave at camera raw/log defaults - no input CST or LUT before this node.");
+    helpLine("help5", "Camera control", "Set it to match the source footage; this node does the input transform.");
+    helpLine("help6", "Output Encode", "Leave on Rec.709 (Scene) to match the timeline above; change only if your timeline differs.");
 }
 
 ImageEffect* PowerGradeFactory::createInstance(OfxImageEffectHandle p_Handle, ContextEnum /*p_Context*/)

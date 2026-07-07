@@ -48,9 +48,21 @@ static inline float decode_log(int cam, float x)
         return (safe_pow(10.0f, x/0.224282f) - 1.0f)/155.975327f - 0.01f;
     } else if (cam == 6) { // DJI D-Log
         return (x <= 0.14f) ? ((x-0.0929f)/6.025f) : (safe_pow(10.0f,(x-0.5595f)/0.9892f) - 0.0108f);
-    } else { // Fuji F-Log2
+    } else if (cam == 7) { // Fuji F-Log2
         const float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x >= cut) ? ((safe_pow(10.0f,(x-d)/c)-b)/a) : ((x-f)/e);
+    } else if (cam == 8) { // Panasonic V-Log
+        return (x < 0.181f) ? ((x - 0.125f)/5.6f) : (safe_pow(10.0f,(x - 0.598206f)/0.241514f) - 0.00873f);
+    } else if (cam == 9) { // Rec.2100 HLG (inverse OETF, reference-white normalised)
+        const float a=0.17883277f,b=0.28466892f,c=0.55991073f;
+        float e = (x <= 0.5f) ? (x*x/3.0f) : ((expf((x-c)/a)+b)/12.0f);
+        return e * 3.774f;   // 75% HLG ref white -> ~1.0
+    } else { // Rec.2100 PQ / ST.2084 (inverse EOTF, reference-white normalised)
+        const float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f;
+        float p = safe_pow(x, 1.0f/m2);
+        float num = p - c1; if (num < 0.f) num = 0.f;
+        float e = safe_pow(num/(c2 - c3*p), 1.0f/m1);
+        return e * 49.26f;   // 203-nit PQ ref white -> ~1.0
     }
 }
 
@@ -70,6 +82,7 @@ static inline void to_XYZ(int cam, const float v[3], float o[3])
     else if (cam == 2) { float t[9]={0.6380076f,0.2147014f,0.0977226f, 0.2919283f,0.8238731f,-0.1158014f, 0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if (cam == 3) { float t[9]={0.7048583f,0.1297602f,0.1158373f, 0.2545241f,0.7814843f,-0.0360084f, 0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if (cam == 5) { float t[9]={0.7352750f,0.0686090f,0.1465710f, 0.2866940f,0.8429790f,-0.1296730f, -0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if (cam == 8) { float t[9]={0.6796440f,0.1522110f,0.1186000f, 0.2606860f,0.7748940f,-0.0355800f, -0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Panasonic V-Gamut
     else { float t[9]={0.6369580f,0.1446169f,0.1688810f, 0.2627002f,0.6779981f,0.0593017f, 0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; } // 4,6,7 -> Rec2020 stand-in
     mul33(m, v, o);
 }
@@ -121,9 +134,20 @@ static inline void hsv2rgb(float h,float s,float v,float& r,float& g,float& b)
     }
 }
 
+// Rec.709 scene OETF (linear toe). LGG runs here so near-blacks stay pinned,
+// matching Resolve's timeline wheels.
+static inline float r709_enc(float L) { return (L < 0.018f) ? (4.5f*L) : (1.099f*safe_pow(L,0.45f) - 0.099f); }
+static inline float r709_dec(float V) { return (V < 0.081f) ? (V/4.5f) : safe_pow((V+0.099f)/1.099f, 1.0f/0.45f); }
+
+// DaVinci Intermediate log encode/decode (the space the tree's Lift/Gamma/Gain runs in)
+static inline float di_encode(float x)
+{ const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
+static inline float di_decode(float x)
+{ const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
+
 static inline float encode(int enc, float x)
 {
-    if (enc == 0) return safe_pow(x < 0.f ? 0.f : x, 1.0f/2.4f);          // Rec.709 gamma 2.4
+    if (enc == 0) return r709_enc(x);                                    // Rec.709 (Scene) OETF
     if (enc == 1) { float code = 685.0f + 300.0f*log10f(x < 1e-4f ? 1e-4f : x); return std::min(std::max(code/1023.0f,0.0f),1.0f); } // Cineon
     if (enc == 2) { const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); } // DI
     return x;                                                             // linear
@@ -156,11 +180,20 @@ static inline void apply_lut(const float* lut, int N, float mix,
     b = b + (out[2]-b)*mix;
 }
 
+// Post-LUT trim in display space: exposure (multiply) then contrast about 0.5.
+static inline void apply_trim(float postExp, float postCon, float& r, float& g, float& b)
+{
+    float ex = exp2f(postExp);
+    r = (r*ex - 0.5f)*postCon + 0.5f;
+    g = (g*ex - 0.5f)*postCon + 0.5f;
+    b = (b*ex - 0.5f)*postCon + 0.5f;
+}
+
 // full per-pixel process. in/out are RGB (alpha handled by caller).
 static inline void process(int cam, int enc, const float* P, float inR, float inG, float inB,
                            float& outR, float& outG, float& outB)
 {
-    const float temp=P[0], tint=P[1], density=P[2], lift=P[3], gamma=P[4], gain=P[5];
+    const float temp=P[0], tint=P[1], density=P[2], lift=P[3], gamma=P[4], gain=P[5], offTemp=P[6], offTint=P[7];
 
     // 1-2. decode + into DWG-linear working space
     float lin[3] = { decode_log(cam,inR), decode_log(cam,inG), decode_log(cam,inB) };
@@ -168,24 +201,29 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     float w[3];   XYZ_to_DWG(xyz, w);
 
     // 3. Balance (2-axis white balance in linear)
+    //    Gain (multiplicative) — neutral highlights
     w[0] *= (1.0f + temp*0.20f);
     w[2] *= (1.0f - temp*0.20f);
     w[1] *= (1.0f + tint*0.20f);
+    //    Offset (additive) — shifts every tone's chroma evenly (best for stubborn casts)
+    w[0] += offTemp*0.10f;
+    w[2] -= offTemp*0.10f;
+    w[1] += offTint*0.10f;
 
-    // 4. Density (HSV saturation gain — the "green of Gain in HSV" trick)
+    // 4. Density (HSV saturation gain in DI-log — the "green of Gain in HSV" trick).
+    //    Run in log (not linear) so saturated highlights get richer instead of blowing out.
     if (density != 0.0f) {
-        float h,s,v; rgb2hsv(w[0],w[1],w[2],h,s,v);
+        float l0=di_encode(w[0]), l1=di_encode(w[1]), l2=di_encode(w[2]);
+        float h,s,v; rgb2hsv(l0,l1,l2,h,s,v);
         s = clamp01(s * (1.0f + density));
-        hsv2rgb(h,s,v,w[0],w[1],w[2]);
+        hsv2rgb(h,s,v,l0,l1,l2);
+        w[0]=di_decode(l0); w[1]=di_decode(l1); w[2]=di_decode(l2);
     }
 
-    // 5. Exposure — basic Lift / Gamma / Gain  (CDL-style: (in*gain + lift)^(1/gamma))
-    for (int i=0;i<3;i++) {
-        float v = w[i]*gain + lift;
-        w[i] = safe_pow(v, 1.0f/gamma);
-    }
-
-    // 6. Output: DWG -> target
+    // 5. Exposure — Lift / Gamma / Gain in DaVinci Intermediate (log), like the tree's
+    //    default wheels. Running in log (not linear) makes all three behave consistently
+    //    as normal SDR wheels instead of Lift acting like an HDR/linear wheel.
+    // 5. Output primaries (still linear)
     float outc[3];
     if (enc == 0 || enc == 1) {           // Rec.709 primaries (display / film-LUT feed)
         float x2[3]; DWG_to_XYZ(w, x2);
@@ -193,6 +231,21 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     } else {                              // DI / Linear keep DWG primaries
         outc[0]=w[0]; outc[1]=w[1]; outc[2]=w[2];
     }
+
+    // 6. Lift / Gamma / Gain in Rec.709 scene-OETF space (linear toe), pivoting like
+    //    Resolve's timeline wheels. Applied as distinct steps so each pins correctly:
+    //      gain  : multiply, pivot @ black
+    //      lift  : pivot @ white, reach clamped at white so superwhites aren't amplified
+    //      gamma : power, pivot @ black & white
+    for (int i=0;i<3;i++) {
+        float v = r709_enc(outc[i]);
+        v = v * gain;
+        v = v + lift * (1.0f - (v < 1.0f ? v : 1.0f));
+        v = safe_pow(v, 1.0f/gamma);
+        outc[i] = r709_dec(v);
+    }
+
+    // 7. Final output encode
     outR = encode(enc, outc[0]);
     outG = encode(enc, outc[1]);
     outB = encode(enc, outc[2]);

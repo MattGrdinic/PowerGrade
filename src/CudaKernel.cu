@@ -17,8 +17,11 @@ __device__ float pg_decode(int cam, float x){
         if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; }
     else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }
     else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
-    else { float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
+    else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
+    else if(cam==8){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
+    else if(cam==9){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((expf((x-c)/a)+b)/12.0f); return e*3.774f; } // Rec.2100 HLG
+    else { float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f; float p=pg_pow(x,1.0f/m2); float num=fmaxf(p-c1,0.0f); float e=pg_pow(num/(c2-c3*p),1.0f/m1); return e*49.26f; } // Rec.2100 PQ
 }
 
 __device__ void mul33(const float m[9], const float v[3], float o[3]){
@@ -31,6 +34,7 @@ __device__ void pg_toXYZ(int cam, const float v[3], float o[3]){
     else if(cam==2){ float t[9]={0.6380076f,0.2147014f,0.0977226f,0.2919283f,0.8238731f,-0.1158014f,0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if(cam==3){ float t[9]={0.7048583f,0.1297602f,0.1158373f,0.2545241f,0.7814843f,-0.0360084f,0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if(cam==5){ float t[9]={0.7352750f,0.0686090f,0.1465710f,0.2866940f,0.8429790f,-0.1296730f,-0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==8){ float t[9]={0.6796440f,0.1522110f,0.1186000f,0.2606860f,0.7748940f,-0.0355800f,-0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else { float t[9]={0.6369580f,0.1446169f,0.1688810f,0.2627002f,0.6779981f,0.0593017f,0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     mul33(m,v,o);
 }
@@ -49,8 +53,14 @@ __device__ void pg_hsv2rgb(const float c[3], float o[3]){
     if(i==0){o[0]=v;o[1]=t;o[2]=p;} else if(i==1){o[0]=q;o[1]=v;o[2]=p;} else if(i==2){o[0]=p;o[1]=v;o[2]=t;}
     else if(i==3){o[0]=p;o[1]=q;o[2]=v;} else if(i==4){o[0]=t;o[1]=p;o[2]=v;} else {o[0]=v;o[1]=p;o[2]=q;}
 }
+__device__ float pg_r709e(float L){ return (L<0.018f)?(4.5f*L):(1.099f*pg_pow(L,0.45f)-0.099f); }
+__device__ float pg_r709d(float V){ return (V<0.081f)?(V/4.5f):pg_pow((V+0.099f)/1.099f,1.0f/0.45f); }
+__device__ float pg_lgg(float L,float gain,float lift,float gamma){ float v=pg_r709e(L); v=v*gain; v=v+lift*(1.0f-fminf(v,1.0f)); v=pg_pow(v,1.0f/gamma); return pg_r709d(v); }
+__device__ float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
+__device__ float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
+
 __device__ float pg_enc(int enc, float x){
-    if(enc==0) return pg_pow(fmaxf(x,0.0f),1.0f/2.4f);
+    if(enc==0) return pg_r709e(x);
     else if(enc==1){ float code=685.0f+300.0f*log10f(fmaxf(x,1e-4f)); return fminf(fmaxf(code/1023.0f,0.0f),1.0f); }
     else if(enc==2){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
     else return x;
@@ -74,17 +84,19 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
     const int y=blockIdx.y*blockDim.y+threadIdx.y;
     if(x<W && y<H){
         const int i=((y*W)+x)*4;
-        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5];
+        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7];
         float lin[3]={pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2])};
         float xyz[3]; pg_toXYZ(cam,lin,xyz);
         float w[3];   pg_XYZtoDWG(xyz,w);
         w[0]*=(1.0f+temp*0.20f); w[2]*=(1.0f-temp*0.20f); w[1]*=(1.0f+tint*0.20f);
-        if(density!=0.0f){ float hsv[3]; pg_rgb2hsv(w,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,w); }
-        for(int k=0;k<3;k++) w[k]=pg_pow(w[k]*gain+lift,1.0f/gamma);
+        w[0]+=offTemp*0.10f; w[2]-=offTemp*0.10f; w[1]+=offTint*0.10f;
+        if(density!=0.0f){ float l[3]={pg_dienc(w[0]),pg_dienc(w[1]),pg_dienc(w[2])}; float hsv[3]; pg_rgb2hsv(l,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,l); w[0]=pg_didec(l[0]); w[1]=pg_didec(l[1]); w[2]=pg_didec(l[2]); }
         float outc[3];
         if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
+        for(int k=0;k<3;k++) outc[k]=pg_lgg(outc[k],gain,lift,gamma);  // LGG in Rec709 scene space
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
         if(lutN>=2 && lutMix>0.0f){ float s[3]; pg_sampleLUT(lut,lutN,e,s); for(int k=0;k<3;k++) e[k]=e[k]+(s[k]-e[k])*lutMix; }
+        float ex=exp2f(P[8]); for(int k=0;k<3;k++) e[k]=(e[k]*ex-0.5f)*P[9]+0.5f;  // post-LUT trim
         out[i]=e[0]; out[i+1]=e[1]; out[i+2]=e[2]; out[i+3]=in[i+3];
     }
 }
@@ -97,8 +109,8 @@ void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Par
     dim3 blocks((p_Width + threads.x - 1) / threads.x, (p_Height + threads.y - 1) / threads.y, 1);
 
     float* d_params = nullptr;
-    cudaMalloc(&d_params, sizeof(float) * 6);
-    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 6, cudaMemcpyHostToDevice, stream);
+    cudaMalloc(&d_params, sizeof(float) * 10);
+    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 10, cudaMemcpyHostToDevice, stream);
 
     int lutN = (p_Lut && p_LutSize >= 2) ? p_LutSize : 0;
     float* d_lut = nullptr;

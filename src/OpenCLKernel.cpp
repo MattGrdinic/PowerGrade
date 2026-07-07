@@ -30,8 +30,11 @@ const char* KernelSource = "\n" \
 "    if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; } \n" \
 "  else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }                                \n" \
 "  else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }       \n" \
-"  else { float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;       \n" \
-"    return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); } }                                                \n" \
+"  else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f; \n" \
+"    return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }                                                  \n" \
+"  else if(cam==8){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); }      \n" \
+"  else if(cam==9){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((exp((x-c)/a)+b)/12.0f); return e*3.774f; } \n" \
+"  else { float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f; float p=pg_pow(x,1.0f/m2); float num=fmax(p-c1,0.0f); float e=pg_pow(num/(c2-c3*p),1.0f/m1); return e*49.26f; } } \n" \
 "inline float3 pg_mv(float3 r0,float3 r1,float3 r2,float3 v){ return (float3)(dot(r0,v),dot(r1,v),dot(r2,v)); }  \n" \
 "inline float3 pg_toXYZ(int cam, float3 v){                                                                     \n" \
 "  if(cam==0) return pg_mv((float3)(0.7006223f,0.1487748f,0.1010587f),(float3)(0.2740150f,0.8736457f,-0.1476607f),(float3)(-0.0989629f,-0.1378905f,1.3259942f),v); \n" \
@@ -39,6 +42,7 @@ const char* KernelSource = "\n" \
 "  else if(cam==2) return pg_mv((float3)(0.6380076f,0.2147014f,0.0977226f),(float3)(0.2919283f,0.8238731f,-0.1158014f),(float3)(0.0027932f,-0.0670795f,1.1533751f),v); \n" \
 "  else if(cam==3) return pg_mv((float3)(0.7048583f,0.1297602f,0.1158373f),(float3)(0.2545241f,0.7814843f,-0.0360084f),(float3)(0.0f,0.0f,1.0890577f),v); \n" \
 "  else if(cam==5) return pg_mv((float3)(0.7352750f,0.0686090f,0.1465710f),(float3)(0.2866940f,0.8429790f,-0.1296730f),(float3)(-0.0796810f,-0.3473430f,1.5164950f),v); \n" \
+"  else if(cam==8) return pg_mv((float3)(0.6796440f,0.1522110f,0.1186000f),(float3)(0.2606860f,0.7748940f,-0.0355800f),(float3)(-0.0093100f,-0.0046120f,1.1029800f),v); \n" \
 "  else return pg_mv((float3)(0.6369580f,0.1446169f,0.1688810f),(float3)(0.2627002f,0.6779981f,0.0593017f),(float3)(0.0f,0.0280727f,1.0609851f),v); }  \n" \
 "inline float3 pg_XYZtoDWG(float3 v){ return pg_mv((float3)(1.5166283f,-0.2814601f,-0.1469306f),(float3)(-0.4647205f,1.2513509f,0.1747665f),(float3)(0.0648641f,0.1091221f,0.7613593f),v); } \n" \
 "inline float3 pg_DWGtoXYZ(float3 v){ return pg_mv((float3)(0.7006223f,0.1487748f,0.1010587f),(float3)(0.2740150f,0.8736457f,-0.1476607f),(float3)(-0.0989629f,-0.1378905f,1.3259942f),v); } \n" \
@@ -52,8 +56,13 @@ const char* KernelSource = "\n" \
 "  h*=6.0f; int i=(int)floor(h); float f=h-(float)i; float p=v*(1.0f-s),q=v*(1.0f-s*f),t=v*(1.0f-s*(1.0f-f)); i=i%6; if(i<0)i+=6; \n" \
 "  if(i==0) return (float3)(v,t,p); else if(i==1) return (float3)(q,v,p); else if(i==2) return (float3)(p,v,t); \n" \
 "  else if(i==3) return (float3)(p,q,v); else if(i==4) return (float3)(t,p,v); else return (float3)(v,p,q); }   \n" \
+"inline float pg_r709e(float L){ return (L<0.018f)?(4.5f*L):(1.099f*pg_pow(L,0.45f)-0.099f); }                  \n" \
+"inline float pg_r709d(float V){ return (V<0.081f)?(V/4.5f):pg_pow((V+0.099f)/1.099f,1.0f/0.45f); }             \n" \
+"inline float pg_lgg(float L,float gain,float lift,float gamma){ float v=pg_r709e(L); v=v*gain; v=v+lift*(1.0f-fmin(v,1.0f)); v=pg_pow(v,1.0f/gamma); return pg_r709d(v); } \n" \
+"inline float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); } \n" \
+"inline float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2(x/C-B)-A):(x/M); } \n" \
 "inline float pg_enc(int enc, float x){                                                                         \n" \
-"  if(enc==0) return pg_pow(fmax(x,0.0f),1.0f/2.4f);                                                             \n" \
+"  if(enc==0) return pg_r709e(x);                                                             \n" \
 "  else if(enc==1){ float code=685.0f+300.0f*log10(fmax(x,1e-4f)); return fmin(fmax(code/1023.0f,0.0f),1.0f); }  \n" \
 "  else if(enc==2){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); } \n" \
 "  else return x; }                                                                                             \n" \
@@ -69,8 +78,8 @@ const char* KernelSource = "\n" \
 "    float c0=c00*(1-fg)+c10*fg,c1=c01*(1-fg)+c11*fg; res[ch]=c0*(1-fb)+c1*fb; }                                \n" \
 "  return (float3)(res[0],res[1],res[2]); }                                                                     \n" \
 "__kernel void PowerGradeKernel(int W,int H,int cam,int enc,                                                    \n" \
-"  float temp,float tint,float density,float lift,float gamma,float gain,                                       \n" \
-"  int lutN, float lutMix, __global const float* lut,                                                           \n" \
+"  float temp,float tint,float density,float lift,float gamma,float gain,float offTemp,float offTint,           \n" \
+"  float postExp,float postCon, int lutN, float lutMix, __global const float* lut,                              \n" \
 "  __global const float* in, __global float* out) {                                                             \n" \
 "  const int x=get_global_id(0); const int y=get_global_id(1);                                                  \n" \
 "  if(x<W && y<H){                                                                                              \n" \
@@ -78,11 +87,13 @@ const char* KernelSource = "\n" \
 "    float3 lin=(float3)(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]));                   \n" \
 "    float3 w=pg_XYZtoDWG(pg_toXYZ(cam,lin));                                                                    \n" \
 "    w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);                                     \n" \
-"    if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } \n" \
-"    w.x=pg_pow(w.x*gain+lift,1.0f/gamma); w.y=pg_pow(w.y*gain+lift,1.0f/gamma); w.z=pg_pow(w.z*gain+lift,1.0f/gamma); \n" \
+"    w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;                                                 \n" \
+"    if(density!=0.0f){ float3 l=(float3)(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=(float3)(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } \n" \
 "    float3 outc=(enc==0||enc==1)?pg_XYZto709(pg_DWGtoXYZ(w)):w;                                                 \n" \
+"    outc.x=pg_lgg(outc.x,gain,lift,gamma); outc.y=pg_lgg(outc.y,gain,lift,gamma); outc.z=pg_lgg(outc.z,gain,lift,gamma); \n" \
 "    float3 e=(float3)(pg_enc(enc,outc.x),pg_enc(enc,outc.y),pg_enc(enc,outc.z));                                \n" \
 "    if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e=e+(s-e)*lutMix; }                          \n" \
+"    float ex=exp2(postExp); e=(e*ex-0.5f)*postCon+0.5f;                                                         \n" \
 "    out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];                                                  \n" \
 "  } }                                                                                                          \n" \
 "\n";
@@ -190,7 +201,7 @@ void RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Camera);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Encode);
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 10; ++i)
         error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Params[i]);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &lutN);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_LutMix);

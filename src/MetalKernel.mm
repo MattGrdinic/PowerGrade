@@ -23,8 +23,11 @@ inline float pg_decode(int cam, float x){
         if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; }
     else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }
     else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
-    else { float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
+    else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
+    else if(cam==8){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
+    else if(cam==9){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((exp((x-c)/a)+b)/12.0f); return e*3.774f; } // Rec.2100 HLG
+    else { float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f; float p=pg_pow(x,1.0f/m2); float num=fmax(p-c1,0.0f); float e=pg_pow(num/(c2-c3*p),1.0f/m1); return e*49.26f; } // Rec.2100 PQ
 }
 
 inline float3 pg_mv(float3 r0,float3 r1,float3 r2,float3 v){ return float3(dot(r0,v),dot(r1,v),dot(r2,v)); }
@@ -35,6 +38,7 @@ inline float3 pg_toXYZ(int cam, float3 v){
     else if(cam==2) return pg_mv(float3(0.6380076f,0.2147014f,0.0977226f),float3(0.2919283f,0.8238731f,-0.1158014f),float3(0.0027932f,-0.0670795f,1.1533751f),v);
     else if(cam==3) return pg_mv(float3(0.7048583f,0.1297602f,0.1158373f),float3(0.2545241f,0.7814843f,-0.0360084f),float3(0.0f,0.0f,1.0890577f),v);
     else if(cam==5) return pg_mv(float3(0.7352750f,0.0686090f,0.1465710f),float3(0.2866940f,0.8429790f,-0.1296730f),float3(-0.0796810f,-0.3473430f,1.5164950f),v);
+    else if(cam==8) return pg_mv(float3(0.6796440f,0.1522110f,0.1186000f),float3(0.2606860f,0.7748940f,-0.0355800f),float3(-0.0093100f,-0.0046120f,1.1029800f),v);
     else return pg_mv(float3(0.6369580f,0.1446169f,0.1688810f),float3(0.2627002f,0.6779981f,0.0593017f),float3(0.0f,0.0280727f,1.0609851f),v);
 }
 inline float3 pg_XYZtoDWG(float3 v){ return pg_mv(float3(1.5166283f,-0.2814601f,-0.1469306f),float3(-0.4647205f,1.2513509f,0.1747665f),float3(0.0648641f,0.1091221f,0.7613593f),v); }
@@ -62,8 +66,16 @@ inline float3 pg_hsv2rgb(float3 c){
     else if(i==3) return float3(p,q,v); else if(i==4) return float3(t,p,v); else return float3(v,p,q);
 }
 
+inline float pg_r709e(float L){ return (L<0.018f)?(4.5f*L):(1.099f*pg_pow(L,0.45f)-0.099f); }
+inline float pg_r709d(float V){ return (V<0.081f)?(V/4.5f):pg_pow((V+0.099f)/1.099f,1.0f/0.45f); }
+inline float pg_lgg(float L, float gain, float lift, float gamma){
+    float v=pg_r709e(L); v=v*gain; v=v+lift*(1.0f-min(v,1.0f)); v=pg_pow(v,1.0f/gamma); return pg_r709d(v);
+}
+inline float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); }
+inline float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2(x/C-B)-A):(x/M); }
+
 inline float pg_enc(int enc, float x){
-    if(enc==0) return pg_pow(fmax(x,0.0f),1.0f/2.4f);
+    if(enc==0) return pg_r709e(x);
     else if(enc==1){ float code=685.0f+300.0f*log10(fmax(x,1e-4f)); return fmin(fmax(code/1023.0f,0.0f),1.0f); }
     else if(enc==2){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); }
     else return x;
@@ -93,15 +105,17 @@ kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[b
 {
     if(id.x<(uint)W && id.y<(uint)H){
         int i=((id.y*W)+id.x)*4;
-        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5];
+        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7];
         float3 lin = float3(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]));
         float3 w = pg_XYZtoDWG(pg_toXYZ(cam,lin));           // working: DWG linear
-        w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // balance
-        if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } // density
-        w.x=pg_pow(w.x*gain+lift,1.0f/gamma); w.y=pg_pow(w.y*gain+lift,1.0f/gamma); w.z=pg_pow(w.z*gain+lift,1.0f/gamma); // LGG
-        float3 outc = (enc==0||enc==1) ? pg_XYZto709(pg_DWGtoXYZ(w)) : w;         // output primaries
+        w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // gain balance
+        w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;               // offset balance
+        if(density!=0.0f){ float3 l=float3(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=float3(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } // density in DI-log
+        float3 outc = (enc==0||enc==1) ? pg_XYZto709(pg_DWGtoXYZ(w)) : w;         // output primaries (linear)
+        outc.x=pg_lgg(outc.x,gain,lift,gamma); outc.y=pg_lgg(outc.y,gain,lift,gamma); outc.z=pg_lgg(outc.z,gain,lift,gamma); // LGG (Rec.709 scene)
         float3 e = float3(pg_enc(enc,outc.x), pg_enc(enc,outc.y), pg_enc(enc,outc.z));
         if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e = e + (s-e)*lutMix; }  // LUT + mix
+        float ex=exp2(P[8]); e = (e*ex - 0.5f)*P[9] + 0.5f;                                     // post-LUT trim (exposure, contrast)
         out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];
     }
 }
@@ -183,7 +197,7 @@ void RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Para
     [computeEncoder setBuffer:dstDeviceBuf offset:0 atIndex:8];
     [computeEncoder setBytes:&p_Width  length:sizeof(int) atIndex:11];
     [computeEncoder setBytes:&p_Height length:sizeof(int) atIndex:12];
-    [computeEncoder setBytes:p_Params  length:sizeof(float)*6 atIndex:13];
+    [computeEncoder setBytes:p_Params  length:sizeof(float)*10 atIndex:13];
     [computeEncoder setBytes:&p_Camera length:sizeof(int) atIndex:14];
     [computeEncoder setBytes:&p_Encode length:sizeof(int) atIndex:15];
     [computeEncoder setBytes:&lutN     length:sizeof(int) atIndex:16];
