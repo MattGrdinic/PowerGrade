@@ -410,7 +410,7 @@ void PowerGradeFactory::describe(OFX::ImageEffectDescriptor& p_Desc)
     p_Desc.setSupportsMultipleClipPARs(kSupportsMultipleClipPARs);
 
     p_Desc.setSupportsOpenCLBuffersRender(true);
-#ifndef __APPLE__
+#ifdef OFX_SUPPORTS_CUDARENDER
     p_Desc.setSupportsCudaRender(true);
     p_Desc.setSupportsCudaStream(true);
 #endif

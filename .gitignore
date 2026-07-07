@@ -1,5 +1,6 @@
 # build artifacts
 build/
+build-cmake/
 *.o
 *.ofx
 *.ofx.bundle/

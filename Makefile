@@ -28,8 +28,12 @@ endif
 
 BINDIR := $(BUNDLE)/Contents/$(BUNDLE_ARCH)
 
-.PHONY: all install clean
+.PHONY: all install clean test
 all: $(BINDIR)/PowerGrade.ofx $(BUNDLE)/Contents/Info.plist
+
+test: | $(BUILD)
+	$(CXX) -std=c++17 -O2 test/pipeline_test.cpp -o $(BUILD)/pipeline_test
+	$(BUILD)/pipeline_test
 
 $(BINDIR)/PowerGrade.ofx: $(PLUGIN_OBJS) $(SUPPORT_OBJS)
 	@mkdir -p $(BINDIR)

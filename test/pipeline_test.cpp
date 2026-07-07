@@ -1,0 +1,116 @@
+// PowerGrade — CPU unit tests for the color pipeline (PowerGradePipeline.h).
+// Builds with any C++17 compiler; no OFX/GPU needed. Returns non-zero on failure.
+// SPDX-License-Identifier: BSD-3-Clause
+#include "../src/PowerGradePipeline.h"
+#include <cstdio>
+#include <cmath>
+#include <string>
+#include <vector>
+
+static int g_fail = 0;
+static void check(bool ok, const std::string& name) {
+    printf("  [%s] %s\n", ok ? "PASS" : "FAIL", name.c_str());
+    if (!ok) g_fail++;
+}
+static bool close(float a, float b, float eps = 1e-3f) { return std::fabs(a - b) <= eps; }
+static bool finite3(float r, float g, float b) { return std::isfinite(r) && std::isfinite(g) && std::isfinite(b); }
+
+// neutral parameter vector: temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon
+static void neutral(float P[10]) { for (int i=0;i<10;i++) P[i]=0.f; P[4]=1.f; P[5]=1.f; P[9]=1.f; }
+
+int main() {
+    printf("PowerGrade pipeline tests\n");
+
+    // 1. Transfer-function round trips (must be exact inverses)
+    {
+        bool ok = true;
+        for (float v = 0.f; v <= 1.5f; v += 0.05f) {
+            ok &= close(pg::r709_dec(pg::r709_enc(v)), v, 2e-3f);
+            ok &= close(pg::di_decode(pg::di_encode(v)),  v, 2e-3f);
+        }
+        check(ok, "r709 and DI encode/decode round-trip");
+    }
+
+    // 2. HDR decodes finite and monotonic over the signal range
+    {
+        bool ok = true;
+        for (int cam = 9; cam <= 10; ++cam) {           // 9=HLG, 10=PQ
+            float prev = -1e9f;
+            for (float x = 0.f; x <= 1.0f; x += 0.05f) {
+                float y = pg::decode_log(cam, x);
+                ok &= std::isfinite(y);
+                ok &= (y >= prev - 1e-4f);               // non-decreasing
+                prev = y;
+            }
+        }
+        check(ok, "HLG/PQ decode finite and monotonic");
+    }
+
+    // 3. Identity 3D LUT leaves pixels unchanged
+    {
+        const int N = 9;
+        std::vector<float> lut((size_t)N*N*N*3);
+        for (int b=0;b<N;b++) for (int g=0;g<N;g++) for (int r=0;r<N;r++) {
+            size_t i = (((size_t)b*N + g)*N + r)*3;
+            lut[i+0] = (float)r/(N-1); lut[i+1] = (float)g/(N-1); lut[i+2] = (float)b/(N-1);
+        }
+        bool ok = true;
+        for (float t = 0.f; t <= 1.f; t += 0.1f) {
+            float r=t, g=t*0.5f, b=1.f-t;
+            pg::apply_lut(lut.data(), N, 1.0f, r, g, b);
+            ok &= close(r, t, 3e-3f) && close(g, t*0.5f, 3e-3f) && close(b, 1.f-t, 3e-3f);
+        }
+        check(ok, "identity 3D LUT is a pass-through");
+    }
+
+    // 4. Neutral trim is identity; exposure/contrast move predictably
+    {
+        float r=0.4f,g=0.5f,b=0.6f;
+        pg::apply_trim(0.f, 1.f, r, g, b);
+        check(close(r,0.4f)&&close(g,0.5f)&&close(b,0.6f), "neutral trim is identity");
+    }
+
+    // 5. Full pipeline is finite for every camera x encode x sample input
+    {
+        float P[10]; neutral(P);
+        bool ok = true;
+        for (int cam = 0; cam <= 10; ++cam)
+          for (int enc = 0; enc <= 3; ++enc)
+            for (float x = 0.02f; x <= 0.98f; x += 0.12f) {
+                float or_,og,ob; pg::process(cam, enc, P, x, x*0.9f, x*1.1f, or_, og, ob);
+                ok &= finite3(or_,og,ob);
+            }
+        check(ok, "process() finite for all cameras/encodes/inputs");
+    }
+
+    // 6. Gain pivots black: a black input stays black under gain
+    {
+        float P[10]; neutral(P); P[5] = 2.0f;            // gain = 2
+        float r,g,b; pg::process(0, 0, P, 0.f, 0.f, 0.f, r, g, b);
+        check(close(r,0.f,2e-3f)&&close(g,0.f,2e-3f)&&close(b,0.f,2e-3f), "gain pins black");
+    }
+
+    // 7. Lift pivots white: diffuse white (BMD/DI code ~0.5139 -> linear 1.0) unchanged by lift
+    {
+        const float whiteCode = pg::di_encode(1.0f);     // camera code that decodes to linear 1.0
+        float P0[10]; neutral(P0);
+        float P1[10]; neutral(P1); P1[3] = -0.25f;        // lift down
+        float a0,b0,c0, a1,b1,c1;
+        pg::process(0, 0, P0, whiteCode, whiteCode, whiteCode, a0, b0, c0);
+        pg::process(0, 0, P1, whiteCode, whiteCode, whiteCode, a1, b1, c1);
+        check(close(a0,a1,5e-3f)&&close(b0,b1,5e-3f)&&close(c0,c1,5e-3f), "lift pins white (diffuse white unchanged)");
+    }
+
+    // 8. Lift does not amplify superwhites (BMD/DI code 1.0 -> linear ~100)
+    {
+        float P0[10]; neutral(P0);
+        float P1[10]; neutral(P1); P1[3] = -0.25f;
+        float a0,b0,c0, a1,b1,c1;
+        pg::process(0, 3, P0, 1.0f, 1.0f, 1.0f, a0, b0, c0);   // enc=3 linear so we compare raw
+        pg::process(0, 3, P1, 1.0f, 1.0f, 1.0f, a1, b1, c1);
+        check(close(a0,a1,1e-2f), "lift leaves superwhites untouched");
+    }
+
+    printf("%s (%d failure%s)\n", g_fail ? "TESTS FAILED" : "ALL TESTS PASSED", g_fail, g_fail==1?"":"s");
+    return g_fail ? 1 : 0;
+}
