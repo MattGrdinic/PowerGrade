@@ -23,8 +23,9 @@ inline float pg_decode(int cam, float x){
         if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; }
     else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }
     else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
-    else { float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
+    else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
+    else { return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
 }
 
 inline float3 pg_mv(float3 r0,float3 r1,float3 r2,float3 v){ return float3(dot(r0,v),dot(r1,v),dot(r2,v)); }
@@ -35,6 +36,7 @@ inline float3 pg_toXYZ(int cam, float3 v){
     else if(cam==2) return pg_mv(float3(0.6380076f,0.2147014f,0.0977226f),float3(0.2919283f,0.8238731f,-0.1158014f),float3(0.0027932f,-0.0670795f,1.1533751f),v);
     else if(cam==3) return pg_mv(float3(0.7048583f,0.1297602f,0.1158373f),float3(0.2545241f,0.7814843f,-0.0360084f),float3(0.0f,0.0f,1.0890577f),v);
     else if(cam==5) return pg_mv(float3(0.7352750f,0.0686090f,0.1465710f),float3(0.2866940f,0.8429790f,-0.1296730f),float3(-0.0796810f,-0.3473430f,1.5164950f),v);
+    else if(cam==8) return pg_mv(float3(0.6796440f,0.1522110f,0.1186000f),float3(0.2606860f,0.7748940f,-0.0355800f),float3(-0.0093100f,-0.0046120f,1.1029800f),v);
     else return pg_mv(float3(0.6369580f,0.1446169f,0.1688810f),float3(0.2627002f,0.6779981f,0.0593017f),float3(0.0f,0.0280727f,1.0609851f),v);
 }
 inline float3 pg_XYZtoDWG(float3 v){ return pg_mv(float3(1.5166283f,-0.2814601f,-0.1469306f),float3(-0.4647205f,1.2513509f,0.1747665f),float3(0.0648641f,0.1091221f,0.7613593f),v); }
@@ -101,9 +103,9 @@ kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[b
         float3 w = pg_XYZtoDWG(pg_toXYZ(cam,lin));           // working: DWG linear
         w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // balance
         if(density!=0.0f){ float3 hsv=pg_rgb2hsv(w); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); w=pg_hsv2rgb(hsv); } // density
-        w.x=pg_didec(pg_pow(pg_dienc(w.x)*(gain-lift)+lift,1.0f/gamma)); w.y=pg_didec(pg_pow(pg_dienc(w.y)*(gain-lift)+lift,1.0f/gamma)); w.z=pg_didec(pg_pow(pg_dienc(w.z)*(gain-lift)+lift,1.0f/gamma)); // LGG in DI-log
         float3 outc = (enc==0||enc==1) ? pg_XYZto709(pg_DWGtoXYZ(w)) : w;         // output primaries
         float3 e = float3(pg_enc(enc,outc.x), pg_enc(enc,outc.y), pg_enc(enc,outc.z));
+        e.x=pg_pow(e.x*(gain-lift)+lift,1.0f/gamma); e.y=pg_pow(e.y*(gain-lift)+lift,1.0f/gamma); e.z=pg_pow(e.z*(gain-lift)+lift,1.0f/gamma); // LGG in display space
         if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e = e + (s-e)*lutMix; }  // LUT + mix
         out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];
     }

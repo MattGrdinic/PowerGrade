@@ -449,6 +449,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     cam->appendOption("RED Log3G10");
     cam->appendOption("DJI D-Log");
     cam->appendOption("Fuji F-Log2");
+    cam->appendOption("Panasonic V-Log");
     cam->setDefault(0);
     cam->setParent(*gInput);
     page->addChild(*cam);

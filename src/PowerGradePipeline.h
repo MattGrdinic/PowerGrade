@@ -48,9 +48,11 @@ static inline float decode_log(int cam, float x)
         return (safe_pow(10.0f, x/0.224282f) - 1.0f)/155.975327f - 0.01f;
     } else if (cam == 6) { // DJI D-Log
         return (x <= 0.14f) ? ((x-0.0929f)/6.025f) : (safe_pow(10.0f,(x-0.5595f)/0.9892f) - 0.0108f);
-    } else { // Fuji F-Log2
+    } else if (cam == 7) { // Fuji F-Log2
         const float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x >= cut) ? ((safe_pow(10.0f,(x-d)/c)-b)/a) : ((x-f)/e);
+    } else { // Panasonic V-Log
+        return (x < 0.181f) ? ((x - 0.125f)/5.6f) : (safe_pow(10.0f,(x - 0.598206f)/0.241514f) - 0.00873f);
     }
 }
 
@@ -70,6 +72,7 @@ static inline void to_XYZ(int cam, const float v[3], float o[3])
     else if (cam == 2) { float t[9]={0.6380076f,0.2147014f,0.0977226f, 0.2919283f,0.8238731f,-0.1158014f, 0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if (cam == 3) { float t[9]={0.7048583f,0.1297602f,0.1158373f, 0.2545241f,0.7814843f,-0.0360084f, 0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if (cam == 5) { float t[9]={0.7352750f,0.0686090f,0.1465710f, 0.2866940f,0.8429790f,-0.1296730f, -0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if (cam == 8) { float t[9]={0.6796440f,0.1522110f,0.1186000f, 0.2606860f,0.7748940f,-0.0355800f, -0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Panasonic V-Gamut
     else { float t[9]={0.6369580f,0.1446169f,0.1688810f, 0.2627002f,0.6779981f,0.0593017f, 0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; } // 4,6,7 -> Rec2020 stand-in
     mul33(m, v, o);
 }
@@ -188,14 +191,7 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     // 5. Exposure — Lift / Gamma / Gain in DaVinci Intermediate (log), like the tree's
     //    default wheels. Running in log (not linear) makes all three behave consistently
     //    as normal SDR wheels instead of Lift acting like an HDR/linear wheel.
-    //  DaVinci Lift/Gamma/Gain: gain pivots black, lift pivots white, gamma pivots both.
-    for (int i=0;i<3;i++) {
-        float lg = di_encode(w[i]);
-        lg = safe_pow(lg*(gain - lift) + lift, 1.0f/gamma);
-        w[i] = di_decode(lg);
-    }
-
-    // 6. Output: DWG -> target
+    // 5. Output encode (working -> display/log)
     float outc[3];
     if (enc == 0 || enc == 1) {           // Rec.709 primaries (display / film-LUT feed)
         float x2[3]; DWG_to_XYZ(w, x2);
@@ -203,9 +199,14 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     } else {                              // DI / Linear keep DWG primaries
         outc[0]=w[0]; outc[1]=w[1]; outc[2]=w[2];
     }
-    outR = encode(enc, outc[0]);
-    outG = encode(enc, outc[1]);
-    outB = encode(enc, outc[2]);
+    float e0 = encode(enc, outc[0]), e1 = encode(enc, outc[1]), e2 = encode(enc, outc[2]);
+
+    // 6. Lift / Gamma / Gain in the OUTPUT (display) space, so the wheels pivot exactly
+    //    like Resolve's primary wheels: gain @ black(0), lift @ white(1), gamma @ both.
+    //    out = (in*(gain - lift) + lift) ^ (1/gamma)
+    outR = safe_pow(e0*(gain - lift) + lift, 1.0f/gamma);
+    outG = safe_pow(e1*(gain - lift) + lift, 1.0f/gamma);
+    outB = safe_pow(e2*(gain - lift) + lift, 1.0f/gamma);
 }
 
 } // namespace pg

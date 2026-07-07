@@ -17,8 +17,9 @@ __device__ float pg_decode(int cam, float x){
         if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; }
     else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }
     else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
-    else { float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
+    else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
+    else { return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
 }
 
 __device__ void mul33(const float m[9], const float v[3], float o[3]){
@@ -31,6 +32,7 @@ __device__ void pg_toXYZ(int cam, const float v[3], float o[3]){
     else if(cam==2){ float t[9]={0.6380076f,0.2147014f,0.0977226f,0.2919283f,0.8238731f,-0.1158014f,0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if(cam==3){ float t[9]={0.7048583f,0.1297602f,0.1158373f,0.2545241f,0.7814843f,-0.0360084f,0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if(cam==5){ float t[9]={0.7352750f,0.0686090f,0.1465710f,0.2866940f,0.8429790f,-0.1296730f,-0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==8){ float t[9]={0.6796440f,0.1522110f,0.1186000f,0.2606860f,0.7748940f,-0.0355800f,-0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else { float t[9]={0.6369580f,0.1446169f,0.1688810f,0.2627002f,0.6779981f,0.0593017f,0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     mul33(m,v,o);
 }
@@ -83,10 +85,10 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
         float w[3];   pg_XYZtoDWG(xyz,w);
         w[0]*=(1.0f+temp*0.20f); w[2]*=(1.0f-temp*0.20f); w[1]*=(1.0f+tint*0.20f);
         if(density!=0.0f){ float hsv[3]; pg_rgb2hsv(w,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,w); }
-        for(int k=0;k<3;k++) w[k]=pg_didec(pg_pow(pg_dienc(w[k])*(gain-lift)+lift,1.0f/gamma));
         float outc[3];
         if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
+        for(int k=0;k<3;k++) e[k]=pg_pow(e[k]*(gain-lift)+lift,1.0f/gamma);  // LGG in display space
         if(lutN>=2 && lutMix>0.0f){ float s[3]; pg_sampleLUT(lut,lutN,e,s); for(int k=0;k<3;k++) e[k]=e[k]+(s[k]-e[k])*lutMix; }
         out[i]=e[0]; out[i+1]=e[1]; out[i+2]=e[2]; out[i+3]=in[i+3];
     }
