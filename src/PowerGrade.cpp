@@ -35,19 +35,20 @@
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
 #define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
 
-// (label, absolute path) of every .cube found under kFilmLutDir. Built once at describe.
+// (label, absolute path) LUT lists, built once at describe.
+//   s_FilmLuts: Resolve's "Film Looks" folder (print-emulation, need Cineon input).
+//   s_LookLuts: the entire master LUT folder (any look LUT, Rec.709 path).
 static std::vector<std::pair<std::string, std::string>> s_FilmLuts;
+static std::vector<std::pair<std::string, std::string>> s_LookLuts;
 static bool s_Scanned = false;
 
-static void scanFilmLuts()
+// Scan `root` for .cube files. If labelBase is non-empty, labels are the path
+// relative to labelBase (folder-qualified); otherwise just the file stem.
+static void scanDir(const std::string& root, const std::string& labelBase,
+                    std::vector<std::pair<std::string, std::string>>& out)
 {
-    if (s_Scanned) return;
-    s_Scanned = true;
     namespace fs = std::filesystem;
     std::error_code ec;
-    // Prefer Resolve's dedicated "Film Looks" folder (print-emulation LUTs); else the whole LUT tree.
-    std::string root = std::string(kFilmLutDir) + "/Film Looks";
-    if (!fs::exists(root, ec)) root = kFilmLutDir;
     if (!fs::exists(root, ec)) return;
     for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec), end;
          it != end; it.increment(ec))
@@ -58,11 +59,30 @@ static void scanFilmLuts()
         std::string ext = p.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         if (ext == ".cube") {
-            s_FilmLuts.emplace_back(p.stem().string(), p.string());
-            if (s_FilmLuts.size() >= 500) break;
+            std::string label;
+            if (!labelBase.empty()) {
+                std::error_code ec2;
+                fs::path rel = fs::relative(p, labelBase, ec2);
+                label = rel.replace_extension("").string();
+            } else {
+                label = p.stem().string();
+            }
+            out.emplace_back(label, p.string());
+            if (out.size() >= 1000) break;
         }
     }
-    std::sort(s_FilmLuts.begin(), s_FilmLuts.end());
+    std::sort(out.begin(), out.end());
+}
+
+static void scanLuts()
+{
+    if (s_Scanned) return;
+    s_Scanned = true;
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    std::string filmDir = std::string(kFilmLutDir) + "/Film Looks";
+    scanDir(fs::exists(filmDir, ec) ? filmDir : kFilmLutDir, "", s_FilmLuts);  // film-look dropdown
+    scanDir(kFilmLutDir, kFilmLutDir, s_LookLuts);                             // whole master folder
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -192,6 +212,8 @@ class PowerGrade : public OFX::ImageEffect
 public:
     explicit PowerGrade(OfxImageEffectHandle p_Handle);
     virtual void render(const OFX::RenderArguments& p_Args);
+    virtual void changedParam(const OFX::InstanceChangedArgs& p_Args, const std::string& p_ParamName);
+    void setEnabledness();
     void setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderArguments& p_Args);
 
 private:
@@ -207,9 +229,9 @@ private:
     OFX::DoubleParam* m_Gain;
     OFX::ChoiceParam* m_Encode;
 
-    OFX::ChoiceParam* m_LutMode;    // 0 none, 1 custom look file, 2 film-look built-in
+    OFX::ChoiceParam* m_LutMode;    // 0 none, 1 custom look, 2 film-look built-in
     OFX::ChoiceParam* m_FilmLut;
-    OFX::StringParam* m_LookFile;
+    OFX::ChoiceParam* m_LookLut;
     OFX::DoubleParam* m_LutMix;
     CubeLUT           m_Lut;        // cached loaded LUT
 };
@@ -231,8 +253,25 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
 
     m_LutMode = fetchChoiceParam("lutMode");
     m_FilmLut = fetchChoiceParam("filmLut");
-    m_LookFile= fetchStringParam("lookLutFile");
+    m_LookLut = fetchChoiceParam("lookLut");
     m_LutMix  = fetchDoubleParam("lutMix");
+
+    setEnabledness();
+}
+
+// Mutually exclusive: Film Look and Custom Look can't be used together.
+void PowerGrade::setEnabledness()
+{
+    int mode = 0;
+    m_LutMode->getValue(mode);
+    m_FilmLut->setEnabled(mode == 2);
+    m_LookLut->setEnabled(mode == 1);
+    m_LutMix->setEnabled(mode != 0);
+}
+
+void PowerGrade::changedParam(const OFX::InstanceChangedArgs& /*p_Args*/, const std::string& p_ParamName)
+{
+    if (p_ParamName == "lutMode") setEnabledness();
 }
 
 void PowerGrade::render(const OFX::RenderArguments& p_Args)
@@ -277,8 +316,10 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
 
     // Resolve the active LUT (path from mode) and load it (cached by path).
     std::string lutPath;
-    if (lutMode == 1) { m_LookFile->getValueAtTime(p_Args.time, lutPath); }
-    else if (lutMode == 2) {
+    if (lutMode == 1) {
+        int idx = 0; m_LookLut->getValueAtTime(p_Args.time, idx);
+        if (idx >= 0 && idx < (int)s_LookLuts.size()) lutPath = s_LookLuts[idx].second;
+    } else if (lutMode == 2) {
         int idx = 0; m_FilmLut->getValueAtTime(p_Args.time, idx);
         if (idx >= 0 && idx < (int)s_FilmLuts.size()) lutPath = s_FilmLuts[idx].second;
     }
@@ -411,15 +452,15 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     page->addChild(*enc);
 
     // ---- 6. Look / Film LUT ----
-    scanFilmLuts();
+    scanLuts();
     GroupParamDescriptor* gLut = p_Desc.defineGroupParam("gLut");
     gLut->setLabels("6  Look / Film LUT", "6  Look / Film LUT", "6  Look / Film LUT");
 
     ChoiceParamDescriptor* lutMode = p_Desc.defineChoiceParam("lutMode");
     lutMode->setLabels("LUT Mode", "LUT Mode", "LUT Mode");
-    lutMode->setHint("None; a custom Look LUT file (Rec.709 path); or a built-in Film Look LUT (use with Output = Cineon Log).");
+    lutMode->setHint("None; a Custom Look LUT (Rec.709 path); or a built-in Film Look (Cineon path). Film and Look are mutually exclusive.");
     lutMode->appendOption("None");
-    lutMode->appendOption("Custom Look LUT (file)");
+    lutMode->appendOption("Custom Look LUT");
     lutMode->appendOption("Film Look (built-in)");
     lutMode->setDefault(0);
     lutMode->setParent(*gLut);
@@ -427,19 +468,21 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
 
     ChoiceParamDescriptor* filmLut = p_Desc.defineChoiceParam("filmLut");
     filmLut->setLabels("Film Look LUT", "Film Look LUT", "Film Look LUT");
-    filmLut->setHint("Built-in film-look LUT scanned from Resolve's LUT folder. Active when LUT Mode = Film Look.");
+    filmLut->setHint("Built-in film-look LUT (Resolve's Film Looks). Active when LUT Mode = Film Look; encodes to Cineon automatically.");
     if (s_FilmLuts.empty()) filmLut->appendOption("(no .cube LUTs found)");
     else for (const auto& fl : s_FilmLuts) filmLut->appendOption(fl.first);
     filmLut->setDefault(0);
     filmLut->setParent(*gLut);
     page->addChild(*filmLut);
 
-    StringParamDescriptor* lookFile = p_Desc.defineStringParam("lookLutFile");
-    lookFile->setLabels("Look LUT File", "Look LUT File", "Look LUT File");
-    lookFile->setHint("Your own .cube look LUT. Active when LUT Mode = Custom Look LUT.");
-    lookFile->setStringType(eStringTypeFilePath);
-    lookFile->setParent(*gLut);
-    page->addChild(*lookFile);
+    ChoiceParamDescriptor* lookLut = p_Desc.defineChoiceParam("lookLut");
+    lookLut->setLabels("Look LUT", "Look LUT", "Look LUT");
+    lookLut->setHint("Any LUT from Resolve's master LUT folder. Active when LUT Mode = Custom Look; applied on the Rec.709 path.");
+    if (s_LookLuts.empty()) lookLut->appendOption("(no .cube LUTs found)");
+    else for (const auto& ll : s_LookLuts) lookLut->appendOption(ll.first);
+    lookLut->setDefault(0);
+    lookLut->setParent(*gLut);
+    page->addChild(*lookLut);
 
     page->addChild(*defineSlider(p_Desc, "lutMix", "LUT Mix", "LUT output level / strength (like Key Output). 0 = off, 1 = full.", 1.0, 0.0, 1.0, 0.001, gLut));
 }
