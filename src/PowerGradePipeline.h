@@ -232,12 +232,16 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
         outc[0]=w[0]; outc[1]=w[1]; outc[2]=w[2];
     }
 
-    // 6. Lift / Gamma / Gain in Rec.709 scene-OETF space (linear toe), so the wheels
-    //    pivot like Resolve's timeline wheels: gain @ black, lift @ white, gamma @ both,
-    //    with near-blacks staying pinned. out = (in*(gain-lift) + lift)^(1/gamma)
+    // 6. Lift / Gamma / Gain in Rec.709 scene-OETF space (linear toe), pivoting like
+    //    Resolve's timeline wheels. Applied as distinct steps so each pins correctly:
+    //      gain  : multiply, pivot @ black
+    //      lift  : pivot @ white, reach clamped at white so superwhites aren't amplified
+    //      gamma : power, pivot @ black & white
     for (int i=0;i<3;i++) {
         float v = r709_enc(outc[i]);
-        v = safe_pow(v*(gain - lift) + lift, 1.0f/gamma);
+        v = v * gain;
+        v = v + lift * (1.0f - (v < 1.0f ? v : 1.0f));
+        v = safe_pow(v, 1.0f/gamma);
         outc[i] = r709_dec(v);
     }
 
