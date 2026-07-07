@@ -11,6 +11,7 @@
 #include <vector>
 #include <utility>
 #include <algorithm>
+#include <map>
 #include <filesystem>
 
 #include "ofxsImageEffect.h"
@@ -35,17 +36,17 @@
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
 #define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
 
-// (label, absolute path) LUT lists, built once at describe.
+// LUT lists, built once at describe.
+typedef std::vector<std::pair<std::string, std::string>> LutList;   // (label, absolute path)
+typedef std::pair<std::string, LutList> LutGroup;                   // (group name, luts)
+
 //   s_FilmLuts: Resolve's "Film Looks" folder (print-emulation, need Cineon input).
-//   s_LookLuts: the entire master LUT folder (any look LUT, Rec.709 path).
-static std::vector<std::pair<std::string, std::string>> s_FilmLuts;
-static std::vector<std::pair<std::string, std::string>> s_LookLuts;
+//   s_LookGroups: the whole master LUT folder, grouped by top-level subfolder (Group -> LUT cascade).
+static LutList s_FilmLuts;
+static std::vector<LutGroup> s_LookGroups;
 static bool s_Scanned = false;
 
-// Scan `root` for .cube files. If labelBase is non-empty, labels are the path
-// relative to labelBase (folder-qualified); otherwise just the file stem.
-static void scanDir(const std::string& root, const std::string& labelBase,
-                    std::vector<std::pair<std::string, std::string>>& out)
+static void scanDir(const std::string& root, LutList& out)
 {
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -58,18 +59,7 @@ static void scanDir(const std::string& root, const std::string& labelBase,
         const fs::path& p = it->path();
         std::string ext = p.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        if (ext == ".cube") {
-            std::string label;
-            if (!labelBase.empty()) {
-                std::error_code ec2;
-                fs::path rel = fs::relative(p, labelBase, ec2);
-                label = rel.replace_extension("").string();
-            } else {
-                label = p.stem().string();
-            }
-            out.emplace_back(label, p.string());
-            if (out.size() >= 1000) break;
-        }
+        if (ext == ".cube") { out.emplace_back(p.stem().string(), p.string()); if (out.size() >= 1000) break; }
     }
     std::sort(out.begin(), out.end());
 }
@@ -80,9 +70,30 @@ static void scanLuts()
     s_Scanned = true;
     namespace fs = std::filesystem;
     std::error_code ec;
+
     std::string filmDir = std::string(kFilmLutDir) + "/Film Looks";
-    scanDir(fs::exists(filmDir, ec) ? filmDir : kFilmLutDir, "", s_FilmLuts);  // film-look dropdown
-    scanDir(kFilmLutDir, kFilmLutDir, s_LookLuts);                             // whole master folder
+    scanDir(fs::exists(filmDir, ec) ? filmDir : kFilmLutDir, s_FilmLuts);
+
+    // Group the whole master folder by top-level subfolder (files in root -> "General").
+    std::map<std::string, LutList> groups;
+    if (fs::exists(kFilmLutDir, ec)) {
+        for (fs::recursive_directory_iterator it(kFilmLutDir, fs::directory_options::skip_permission_denied, ec), end;
+             it != end; it.increment(ec))
+        {
+            if (ec) break;
+            if (!it->is_regular_file(ec)) continue;
+            const fs::path& p = it->path();
+            std::string ext = p.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext != ".cube") continue;
+            std::error_code ec2;
+            fs::path rel = fs::relative(p, kFilmLutDir, ec2);
+            std::string group = rel.has_parent_path() ? rel.begin()->string() : "General";
+            groups[group].emplace_back(p.stem().string(), p.string());
+        }
+    }
+    for (auto& g : groups) { std::sort(g.second.begin(), g.second.end()); s_LookGroups.emplace_back(g.first, g.second); }
+    // std::map already sorts group names alphabetically.
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -214,6 +225,7 @@ public:
     virtual void render(const OFX::RenderArguments& p_Args);
     virtual void changedParam(const OFX::InstanceChangedArgs& p_Args, const std::string& p_ParamName);
     void setEnabledness();
+    void populateLookLut();     // repopulate the Look LUT dropdown for the current group
     void setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderArguments& p_Args);
 
 private:
@@ -231,6 +243,7 @@ private:
 
     OFX::ChoiceParam* m_LutMode;    // 0 none, 1 custom look, 2 film-look built-in
     OFX::ChoiceParam* m_FilmLut;
+    OFX::ChoiceParam* m_LookGroup;
     OFX::ChoiceParam* m_LookLut;
     OFX::DoubleParam* m_LutMix;
     CubeLUT           m_Lut;        // cached loaded LUT
@@ -251,11 +264,13 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
     m_Gain    = fetchDoubleParam("gain");
     m_Encode  = fetchChoiceParam("outEncode");
 
-    m_LutMode = fetchChoiceParam("lutMode");
-    m_FilmLut = fetchChoiceParam("filmLut");
-    m_LookLut = fetchChoiceParam("lookLut");
-    m_LutMix  = fetchDoubleParam("lutMix");
+    m_LutMode  = fetchChoiceParam("lutMode");
+    m_FilmLut  = fetchChoiceParam("filmLut");
+    m_LookGroup= fetchChoiceParam("lookGroup");
+    m_LookLut  = fetchChoiceParam("lookLut");
+    m_LutMix   = fetchDoubleParam("lutMix");
 
+    populateLookLut();
     setEnabledness();
 }
 
@@ -265,13 +280,27 @@ void PowerGrade::setEnabledness()
     int mode = 0;
     m_LutMode->getValue(mode);
     m_FilmLut->setEnabled(mode == 2);
+    m_LookGroup->setEnabled(mode == 1);
     m_LookLut->setEnabled(mode == 1);
     m_LutMix->setEnabled(mode != 0);
+}
+
+// Rebuild the Look LUT dropdown to list only the currently selected group's LUTs.
+void PowerGrade::populateLookLut()
+{
+    int gi = 0;
+    m_LookGroup->getValue(gi);
+    m_LookLut->resetOptions();
+    if (gi >= 0 && gi < (int)s_LookGroups.size() && !s_LookGroups[gi].second.empty())
+        for (const auto& f : s_LookGroups[gi].second) m_LookLut->appendOption(f.first);
+    else
+        m_LookLut->appendOption("(none)");
 }
 
 void PowerGrade::changedParam(const OFX::InstanceChangedArgs& /*p_Args*/, const std::string& p_ParamName)
 {
     if (p_ParamName == "lutMode") setEnabledness();
+    else if (p_ParamName == "lookGroup") { populateLookLut(); m_LookLut->setValue(0); }
 }
 
 void PowerGrade::render(const OFX::RenderArguments& p_Args)
@@ -317,8 +346,13 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     // Resolve the active LUT (path from mode) and load it (cached by path).
     std::string lutPath;
     if (lutMode == 1) {
-        int idx = 0; m_LookLut->getValueAtTime(p_Args.time, idx);
-        if (idx >= 0 && idx < (int)s_LookLuts.size()) lutPath = s_LookLuts[idx].second;
+        int gi = 0, li = 0;
+        m_LookGroup->getValueAtTime(p_Args.time, gi);
+        m_LookLut->getValueAtTime(p_Args.time, li);
+        if (gi >= 0 && gi < (int)s_LookGroups.size()) {
+            const LutList& luts = s_LookGroups[gi].second;
+            if (li >= 0 && li < (int)luts.size()) lutPath = luts[li].second;
+        }
     } else if (lutMode == 2) {
         int idx = 0; m_FilmLut->getValueAtTime(p_Args.time, idx);
         if (idx >= 0 && idx < (int)s_FilmLuts.size()) lutPath = s_FilmLuts[idx].second;
@@ -475,16 +509,48 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     filmLut->setParent(*gLut);
     page->addChild(*filmLut);
 
+    // Look LUT: two-level cascade (Group -> LUT) to tame the big master-folder list.
+    ChoiceParamDescriptor* lookGroup = p_Desc.defineChoiceParam("lookGroup");
+    lookGroup->setLabels("Look LUT Group", "Look LUT Group", "Look LUT Group");
+    lookGroup->setHint("LUT category (top-level folder in Resolve's LUT directory). Active when LUT Mode = Custom Look.");
+    if (s_LookGroups.empty()) lookGroup->appendOption("(no .cube LUTs found)");
+    else for (const auto& g : s_LookGroups) lookGroup->appendOption(g.first);
+    lookGroup->setDefault(0);
+    lookGroup->setParent(*gLut);
+    page->addChild(*lookGroup);
+
     ChoiceParamDescriptor* lookLut = p_Desc.defineChoiceParam("lookLut");
     lookLut->setLabels("Look LUT", "Look LUT", "Look LUT");
-    lookLut->setHint("Any LUT from Resolve's master LUT folder. Active when LUT Mode = Custom Look; applied on the Rec.709 path.");
-    if (s_LookLuts.empty()) lookLut->appendOption("(no .cube LUTs found)");
-    else for (const auto& ll : s_LookLuts) lookLut->appendOption(ll.first);
+    lookLut->setHint("LUT within the selected group. Active when LUT Mode = Custom Look; applied on the Rec.709 path.");
+    if (!s_LookGroups.empty() && !s_LookGroups[0].second.empty())
+        for (const auto& f : s_LookGroups[0].second) lookLut->appendOption(f.first);   // first group; repopulated per instance
+    else
+        lookLut->appendOption("(none)");
     lookLut->setDefault(0);
     lookLut->setParent(*gLut);
     page->addChild(*lookLut);
 
     page->addChild(*defineSlider(p_Desc, "lutMix", "LUT Mix", "LUT output level / strength (like Key Output). 0 = off, 1 = full.", 1.0, 0.0, 1.0, 0.001, gLut));
+
+    // ---- 7. Setup / Help ----
+    GroupParamDescriptor* gHelp = p_Desc.defineGroupParam("gHelp");
+    gHelp->setLabels("7  Setup / Help", "7  Setup / Help", "7  Setup / Help");
+    gHelp->setOpen(false);
+    auto helpLine = [&](const char* name, const char* label, const char* text) {
+        StringParamDescriptor* s = p_Desc.defineStringParam(name);
+        s->setLabels(label, label, label);
+        s->setStringType(eStringTypeLabel);
+        s->setDefault(text);
+        s->setEnabled(false);
+        s->setParent(*gHelp);
+        page->addChild(*s);
+    };
+    helpLine("help0", "Requires", "Project > Color Management set to (not color managed):");
+    helpLine("help1", "Color Science", "DaVinci YRGB");
+    helpLine("help2", "Timeline Color Space", "Rec.709 (Scene)");
+    helpLine("help3", "Output Color Space", "Same as Timeline");
+    helpLine("help4", "Clips", "Leave at camera raw/log defaults - no input CST or LUT before this node.");
+    helpLine("help5", "Camera control", "Set it to match the source footage; this node does the input transform.");
 }
 
 ImageEffect* PowerGradeFactory::createInstance(OfxImageEffectHandle p_Handle, ContextEnum /*p_Context*/)
