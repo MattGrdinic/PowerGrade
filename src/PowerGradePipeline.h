@@ -147,7 +147,7 @@ static inline float di_decode(float x)
 
 static inline float encode(int enc, float x)
 {
-    if (enc == 0) return safe_pow(x < 0.f ? 0.f : x, 1.0f/2.4f);          // Rec.709 gamma 2.4
+    if (enc == 0) return r709_enc(x);                                    // Rec.709 (Scene) OETF
     if (enc == 1) { float code = 685.0f + 300.0f*log10f(x < 1e-4f ? 1e-4f : x); return std::min(std::max(code/1023.0f,0.0f),1.0f); } // Cineon
     if (enc == 2) { const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); } // DI
     return x;                                                             // linear

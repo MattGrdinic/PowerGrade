@@ -60,7 +60,7 @@ __device__ float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44
 __device__ float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
 
 __device__ float pg_enc(int enc, float x){
-    if(enc==0) return pg_pow(fmaxf(x,0.0f),1.0f/2.4f);
+    if(enc==0) return pg_r709e(x);
     else if(enc==1){ float code=685.0f+300.0f*log10f(fmaxf(x,1e-4f)); return fminf(fmaxf(code/1023.0f,0.0f),1.0f); }
     else if(enc==2){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
     else return x;

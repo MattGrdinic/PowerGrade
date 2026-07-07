@@ -62,7 +62,7 @@ const char* KernelSource = "\n" \
 "inline float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); } \n" \
 "inline float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2(x/C-B)-A):(x/M); } \n" \
 "inline float pg_enc(int enc, float x){                                                                         \n" \
-"  if(enc==0) return pg_pow(fmax(x,0.0f),1.0f/2.4f);                                                             \n" \
+"  if(enc==0) return pg_r709e(x);                                                             \n" \
 "  else if(enc==1){ float code=685.0f+300.0f*log10(fmax(x,1e-4f)); return fmin(fmax(code/1023.0f,0.0f),1.0f); }  \n" \
 "  else if(enc==2){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); } \n" \
 "  else return x; }                                                                                             \n" \

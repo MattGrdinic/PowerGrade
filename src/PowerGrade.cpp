@@ -341,7 +341,7 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     // Couple the pre-LUT encoding to the LUT path so the two can't mismatch:
     //   Film Look LUTs require Cineon log input; Custom look LUTs use Rec.709.
     if (lutMode == 2)      encode = 1;   // Film Look  -> Cineon Log
-    else if (lutMode == 1) encode = 0;   // Custom Look -> Rec.709 Gamma 2.4
+    else if (lutMode == 1) encode = 0;   // Custom Look -> Rec.709 (Scene)
     // lutMode == 0 (None) -> user's Output Encode is used unchanged
 
     float params[kParamCount];
@@ -506,7 +506,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     ChoiceParamDescriptor* enc = p_Desc.defineChoiceParam("outEncode");
     enc->setLabels("Output Encode", "Output Encode", "Output Encode");
     enc->setHint("Final transform from working space. Applies when LUT Mode = None. (When a LUT is active it is set automatically: Film Look -> Cineon, Custom Look -> Rec.709.)");
-    enc->appendOption("Rec.709 Gamma 2.4");
+    enc->appendOption("Rec.709 (Scene)");
     enc->appendOption("Cineon Log (feed film LUT)");
     enc->appendOption("DaVinci Intermediate");
     enc->appendOption("Linear");
