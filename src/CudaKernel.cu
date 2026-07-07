@@ -19,7 +19,9 @@ __device__ float pg_decode(int cam, float x){
     else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
     else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
-    else { return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
+    else if(cam==8){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
+    else if(cam==9){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((expf((x-c)/a)+b)/12.0f); return e*3.774f; } // Rec.2100 HLG
+    else { float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f; float p=pg_pow(x,1.0f/m2); float num=fmaxf(p-c1,0.0f); float e=pg_pow(num/(c2-c3*p),1.0f/m1); return e*49.26f; } // Rec.2100 PQ
 }
 
 __device__ void mul33(const float m[9], const float v[3], float o[3]){
@@ -91,6 +93,7 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
         for(int k=0;k<3;k++) e[k]=pg_pow(e[k]*(gain-lift)+lift,1.0f/gamma);  // LGG in display space
         if(lutN>=2 && lutMix>0.0f){ float s[3]; pg_sampleLUT(lut,lutN,e,s); for(int k=0;k<3;k++) e[k]=e[k]+(s[k]-e[k])*lutMix; }
+        float ex=exp2f(P[8]); for(int k=0;k<3;k++) e[k]=(e[k]*ex-0.5f)*P[9]+0.5f;  // post-LUT trim
         out[i]=e[0]; out[i+1]=e[1]; out[i+2]=e[2]; out[i+3]=in[i+3];
     }
 }
@@ -103,8 +106,8 @@ void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Par
     dim3 blocks((p_Width + threads.x - 1) / threads.x, (p_Height + threads.y - 1) / threads.y, 1);
 
     float* d_params = nullptr;
-    cudaMalloc(&d_params, sizeof(float) * 8);
-    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 8, cudaMemcpyHostToDevice, stream);
+    cudaMalloc(&d_params, sizeof(float) * 10);
+    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 10, cudaMemcpyHostToDevice, stream);
 
     int lutN = (p_Lut && p_LutSize >= 2) ? p_LutSize : 0;
     float* d_lut = nullptr;

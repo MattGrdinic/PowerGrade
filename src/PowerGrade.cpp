@@ -31,7 +31,7 @@
 #define kSupportsMultiResolution    false
 #define kSupportsMultipleClipPARs   false
 
-#define kParamCount 8  // temp,tint,density,lift,gamma,gain,offTemp,offTint
+#define kParamCount 10 // temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon
 
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
 #define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
@@ -189,6 +189,7 @@ void PowerGradeProcessor::multiThreadProcessImages(OfxRectI p_ProcWindow)
                             dstPix[0], dstPix[1], dstPix[2]);
                 if (_lut && _lutSize >= 2 && _lutMix > 0.0f)
                     pg::apply_lut(_lut, _lutSize, _lutMix, dstPix[0], dstPix[1], dstPix[2]);
+                pg::apply_trim(_params[8], _params[9], dstPix[0], dstPix[1], dstPix[2]);  // post-LUT trim
                 dstPix[3] = srcPix[3];
             }
             else
@@ -242,6 +243,8 @@ private:
     OFX::DoubleParam* m_Gamma;
     OFX::DoubleParam* m_Gain;
     OFX::ChoiceParam* m_Encode;
+    OFX::DoubleParam* m_PostExp;
+    OFX::DoubleParam* m_PostCon;
 
     OFX::ChoiceParam* m_LutMode;    // 0 none, 1 custom look, 2 film-look built-in
     OFX::ChoiceParam* m_FilmLut;
@@ -267,6 +270,8 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
     m_Gamma   = fetchDoubleParam("gamma");
     m_Gain    = fetchDoubleParam("gain");
     m_Encode  = fetchChoiceParam("outEncode");
+    m_PostExp = fetchDoubleParam("postExp");
+    m_PostCon = fetchDoubleParam("postCon");
 
     m_LutMode  = fetchChoiceParam("lutMode");
     m_FilmLut  = fetchChoiceParam("filmLut");
@@ -348,6 +353,8 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     params[5] = (float)m_Gain->getValueAtTime(p_Args.time);
     params[6] = (float)m_OffTemp->getValueAtTime(p_Args.time);
     params[7] = (float)m_OffTint->getValueAtTime(p_Args.time);
+    params[8] = (float)m_PostExp->getValueAtTime(p_Args.time);
+    params[9] = (float)m_PostCon->getValueAtTime(p_Args.time);
 
     // Resolve the active LUT (path from mode) and load it (cached by path).
     std::string lutPath;
@@ -456,6 +463,8 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     cam->appendOption("DJI D-Log");
     cam->appendOption("Fuji F-Log2");
     cam->appendOption("Panasonic V-Log");
+    cam->appendOption("Rec.2100 HLG (HDR)");
+    cam->appendOption("Rec.2100 PQ / ST.2084 (HDR)");
     cam->setDefault(0);
     cam->setParent(*gInput);
     page->addChild(*cam);
@@ -552,9 +561,15 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
 
     page->addChild(*defineSlider(p_Desc, "lutMix", "LUT Mix", "LUT output level / strength (like Key Output). 0 = off, 1 = full.", 1.0, 0.0, 1.0, 0.001, gLut));
 
-    // ---- 7. Setup / Help ----
+    // ---- 7. Trim (after LUT) ----  final display-space trims on top of the look/LUT
+    GroupParamDescriptor* gTrim = p_Desc.defineGroupParam("gTrim");
+    gTrim->setLabels("7  Trim (after LUT)", "7  Trim (after LUT)", "7  Trim (after LUT)");
+    page->addChild(*defineSlider(p_Desc, "postExp", "Exposure", "Post-LUT exposure trim in stops. Bring brightness back after a film-emulation LUT.", 0.0, -3.0, 3.0, 0.01, gTrim));
+    page->addChild(*defineSlider(p_Desc, "postCon", "Contrast", "Post-LUT contrast trim about mid (0.5), applied after the LUT.", 1.0, 0.0, 2.0, 0.001, gTrim));
+
+    // ---- 8. Setup / Help ----
     GroupParamDescriptor* gHelp = p_Desc.defineGroupParam("gHelp");
-    gHelp->setLabels("7  Setup / Help", "7  Setup / Help", "7  Setup / Help");
+    gHelp->setLabels("8  Setup / Help", "8  Setup / Help", "8  Setup / Help");
     gHelp->setOpen(false);
     auto helpLine = [&](const char* name, const char* label, const char* text) {
         StringParamDescriptor* s = p_Desc.defineStringParam(name);

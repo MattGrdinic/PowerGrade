@@ -51,8 +51,18 @@ static inline float decode_log(int cam, float x)
     } else if (cam == 7) { // Fuji F-Log2
         const float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x >= cut) ? ((safe_pow(10.0f,(x-d)/c)-b)/a) : ((x-f)/e);
-    } else { // Panasonic V-Log
+    } else if (cam == 8) { // Panasonic V-Log
         return (x < 0.181f) ? ((x - 0.125f)/5.6f) : (safe_pow(10.0f,(x - 0.598206f)/0.241514f) - 0.00873f);
+    } else if (cam == 9) { // Rec.2100 HLG (inverse OETF, reference-white normalised)
+        const float a=0.17883277f,b=0.28466892f,c=0.55991073f;
+        float e = (x <= 0.5f) ? (x*x/3.0f) : ((expf((x-c)/a)+b)/12.0f);
+        return e * 3.774f;   // 75% HLG ref white -> ~1.0
+    } else { // Rec.2100 PQ / ST.2084 (inverse EOTF, reference-white normalised)
+        const float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f;
+        float p = safe_pow(x, 1.0f/m2);
+        float num = p - c1; if (num < 0.f) num = 0.f;
+        float e = safe_pow(num/(c2 - c3*p), 1.0f/m1);
+        return e * 49.26f;   // 203-nit PQ ref white -> ~1.0
     }
 }
 
@@ -163,6 +173,15 @@ static inline void apply_lut(const float* lut, int N, float mix,
     r = r + (out[0]-r)*mix;
     g = g + (out[1]-g)*mix;
     b = b + (out[2]-b)*mix;
+}
+
+// Post-LUT trim in display space: exposure (multiply) then contrast about 0.5.
+static inline void apply_trim(float postExp, float postCon, float& r, float& g, float& b)
+{
+    float ex = exp2f(postExp);
+    r = (r*ex - 0.5f)*postCon + 0.5f;
+    g = (g*ex - 0.5f)*postCon + 0.5f;
+    b = (b*ex - 0.5f)*postCon + 0.5f;
 }
 
 // full per-pixel process. in/out are RGB (alpha handled by caller).

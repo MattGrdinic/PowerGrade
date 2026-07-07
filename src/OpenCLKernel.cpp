@@ -32,7 +32,9 @@ const char* KernelSource = "\n" \
 "  else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }       \n" \
 "  else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f; \n" \
 "    return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }                                                  \n" \
-"  else { return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } }             \n" \
+"  else if(cam==8){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); }      \n" \
+"  else if(cam==9){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((exp((x-c)/a)+b)/12.0f); return e*3.774f; } \n" \
+"  else { float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f; float p=pg_pow(x,1.0f/m2); float num=fmax(p-c1,0.0f); float e=pg_pow(num/(c2-c3*p),1.0f/m1); return e*49.26f; } } \n" \
 "inline float3 pg_mv(float3 r0,float3 r1,float3 r2,float3 v){ return (float3)(dot(r0,v),dot(r1,v),dot(r2,v)); }  \n" \
 "inline float3 pg_toXYZ(int cam, float3 v){                                                                     \n" \
 "  if(cam==0) return pg_mv((float3)(0.7006223f,0.1487748f,0.1010587f),(float3)(0.2740150f,0.8736457f,-0.1476607f),(float3)(-0.0989629f,-0.1378905f,1.3259942f),v); \n" \
@@ -74,7 +76,7 @@ const char* KernelSource = "\n" \
 "  return (float3)(res[0],res[1],res[2]); }                                                                     \n" \
 "__kernel void PowerGradeKernel(int W,int H,int cam,int enc,                                                    \n" \
 "  float temp,float tint,float density,float lift,float gamma,float gain,float offTemp,float offTint,           \n" \
-"  int lutN, float lutMix, __global const float* lut,                                                           \n" \
+"  float postExp,float postCon, int lutN, float lutMix, __global const float* lut,                              \n" \
 "  __global const float* in, __global float* out) {                                                             \n" \
 "  const int x=get_global_id(0); const int y=get_global_id(1);                                                  \n" \
 "  if(x<W && y<H){                                                                                              \n" \
@@ -88,6 +90,7 @@ const char* KernelSource = "\n" \
 "    float3 e=(float3)(pg_enc(enc,outc.x),pg_enc(enc,outc.y),pg_enc(enc,outc.z));                                \n" \
 "    e.x=pg_pow(e.x*(gain-lift)+lift,1.0f/gamma); e.y=pg_pow(e.y*(gain-lift)+lift,1.0f/gamma); e.z=pg_pow(e.z*(gain-lift)+lift,1.0f/gamma); \n" \
 "    if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e=e+(s-e)*lutMix; }                          \n" \
+"    float ex=exp2(postExp); e=(e*ex-0.5f)*postCon+0.5f;                                                         \n" \
 "    out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];                                                  \n" \
 "  } }                                                                                                          \n" \
 "\n";
@@ -195,7 +198,7 @@ void RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Camera);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Encode);
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < 10; ++i)
         error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Params[i]);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &lutN);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_LutMix);
