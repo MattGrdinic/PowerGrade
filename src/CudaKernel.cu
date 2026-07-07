@@ -1,0 +1,113 @@
+// PowerGrade — CUDA GPU kernel (Linux/Windows NVIDIA). Mirrors src/PowerGradePipeline.h.
+// SPDX-License-Identifier: BSD-3-Clause
+#include <cuda_runtime.h>
+
+__device__ float pg_pow(float b, float e){ return powf(fmaxf(b,0.0f), e); }
+
+__device__ float pg_decode(int cam, float x){
+    if(cam==0){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f;
+        return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
+    else if(cam==1){ return (x>=171.2102946f/1023.0f)?(pg_pow(10.0f,(x*1023.0f-420.0f)/261.5f)*0.19f-0.01f):((x*1023.0f-95.0f)*0.01125f/(171.2102946f-95.0f)); }
+    else if(cam==2){ float a=5.555556f,b=0.052272f,c=0.247190f,d=0.385537f,e=5.367655f,f=0.092809f,cut=0.010591f;
+        return (x>e*cut+f)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
+    else if(cam==3){ float a=(exp2f(18.0f)-16.0f)/117.45f,b=(1023.0f-95.0f)/1023.0f,c=95.0f/1023.0f;
+        float s=(7.0f*logf(2.0f)*exp2f(7.0f-14.0f*c/b))/(a*b); float t=(exp2f(14.0f*(-c/b)+6.0f)-64.0f)/a;
+        float p=(x-c)/b; float hi=(exp2f(14.0f*p+6.0f)-64.0f)/a; return (hi>t)?hi:(x*s); }
+    else if(cam==4){ float v=x; if(v<0.09755646f) return -(pg_pow(10.0f,(0.07623209f-v)/0.42889912f)-1.0f)/14.98325f;
+        if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; }
+    else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }
+    else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
+    else { float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
+        return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
+}
+
+__device__ void mul33(const float m[9], const float v[3], float o[3]){
+    o[0]=m[0]*v[0]+m[1]*v[1]+m[2]*v[2]; o[1]=m[3]*v[0]+m[4]*v[1]+m[5]*v[2]; o[2]=m[6]*v[0]+m[7]*v[1]+m[8]*v[2];
+}
+__device__ void pg_toXYZ(int cam, const float v[3], float o[3]){
+    float m[9];
+    if(cam==0){ float t[9]={0.7006223f,0.1487748f,0.1010587f,0.2740150f,0.8736457f,-0.1476607f,-0.0989629f,-0.1378905f,1.3259942f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==1){ float t[9]={0.5990839f,0.2489255f,0.1024464f,0.2150758f,0.8850685f,-0.1001443f,-0.0320658f,-0.0276902f,1.1487819f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==2){ float t[9]={0.6380076f,0.2147014f,0.0977226f,0.2919283f,0.8238731f,-0.1158014f,0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==3){ float t[9]={0.7048583f,0.1297602f,0.1158373f,0.2545241f,0.7814843f,-0.0360084f,0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==5){ float t[9]={0.7352750f,0.0686090f,0.1465710f,0.2866940f,0.8429790f,-0.1296730f,-0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else { float t[9]={0.6369580f,0.1446169f,0.1688810f,0.2627002f,0.6779981f,0.0593017f,0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    mul33(m,v,o);
+}
+__device__ void pg_XYZtoDWG(const float v[3], float o[3]){ const float m[9]={1.5166283f,-0.2814601f,-0.1469306f,-0.4647205f,1.2513509f,0.1747665f,0.0648641f,0.1091221f,0.7613593f}; mul33(m,v,o); }
+__device__ void pg_DWGtoXYZ(const float v[3], float o[3]){ const float m[9]={0.7006223f,0.1487748f,0.1010587f,0.2740150f,0.8736457f,-0.1476607f,-0.0989629f,-0.1378905f,1.3259942f}; mul33(m,v,o); }
+__device__ void pg_XYZto709(const float v[3], float o[3]){ const float m[9]={3.2409699f,-1.5373832f,-0.4986108f,-0.9692436f,1.8759675f,0.0415551f,0.0556301f,-0.2039770f,1.0569715f}; mul33(m,v,o); }
+
+__device__ void pg_rgb2hsv(const float c[3], float o[3]){
+    float mx=fmaxf(c[0],fmaxf(c[1],c[2])), mn=fminf(c[0],fminf(c[1],c[2])); float v=mx,d=mx-mn; float s=(mx<=0.0f)?0.0f:(d/mx); float h=0.0f;
+    if(d>0.0f){ if(mx==c[0]) h=(c[1]-c[2])/d+(c[1]<c[2]?6.0f:0.0f); else if(mx==c[1]) h=(c[2]-c[0])/d+2.0f; else h=(c[0]-c[1])/d+4.0f; h/=6.0f; }
+    o[0]=h; o[1]=s; o[2]=v;
+}
+__device__ void pg_hsv2rgb(const float c[3], float o[3]){
+    float h=c[0],s=c[1],v=c[2]; if(s<=0.0f){ o[0]=o[1]=o[2]=v; return; }
+    h*=6.0f; int i=(int)floorf(h); float f=h-(float)i; float p=v*(1.0f-s),q=v*(1.0f-s*f),t=v*(1.0f-s*(1.0f-f)); i%=6; if(i<0)i+=6;
+    if(i==0){o[0]=v;o[1]=t;o[2]=p;} else if(i==1){o[0]=q;o[1]=v;o[2]=p;} else if(i==2){o[0]=p;o[1]=v;o[2]=t;}
+    else if(i==3){o[0]=p;o[1]=q;o[2]=v;} else if(i==4){o[0]=t;o[1]=p;o[2]=v;} else {o[0]=v;o[1]=p;o[2]=q;}
+}
+__device__ float pg_enc(int enc, float x){
+    if(enc==0) return pg_pow(fmaxf(x,0.0f),1.0f/2.4f);
+    else if(enc==1){ float code=685.0f+300.0f*log10f(fmaxf(x,1e-4f)); return fminf(fmaxf(code/1023.0f,0.0f),1.0f); }
+    else if(enc==2){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
+    else return x;
+}
+
+__device__ void pg_sampleLUT(const float* lut,int N,const float c[3],float o[3]){
+    float cr=fminf(fmaxf(c[0],0.0f),1.0f)*(N-1), cg=fminf(fmaxf(c[1],0.0f),1.0f)*(N-1), cb=fminf(fmaxf(c[2],0.0f),1.0f)*(N-1);
+    int r0=(int)cr,g0=(int)cg,b0=(int)cb; int r1=r0<N-1?r0+1:r0,g1=g0<N-1?g0+1:g0,b1=b0<N-1?b0+1:b0;
+    float fr=cr-r0,fg=cg-g0,fb=cb-b0;
+    for(int ch=0;ch<3;ch++){
+        float c00=lut[((b0*N+g0)*N+r0)*3+ch]*(1-fr)+lut[((b0*N+g0)*N+r1)*3+ch]*fr;
+        float c10=lut[((b0*N+g1)*N+r0)*3+ch]*(1-fr)+lut[((b0*N+g1)*N+r1)*3+ch]*fr;
+        float c01=lut[((b1*N+g0)*N+r0)*3+ch]*(1-fr)+lut[((b1*N+g0)*N+r1)*3+ch]*fr;
+        float c11=lut[((b1*N+g1)*N+r0)*3+ch]*(1-fr)+lut[((b1*N+g1)*N+r1)*3+ch]*fr;
+        float d0=c00*(1-fg)+c10*fg,d1=c01*(1-fg)+c11*fg; o[ch]=d0*(1-fb)+d1*fb;
+    }
+}
+
+__global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,const float* lut,int lutN,float lutMix,const float* in,float* out){
+    const int x=blockIdx.x*blockDim.x+threadIdx.x;
+    const int y=blockIdx.y*blockDim.y+threadIdx.y;
+    if(x<W && y<H){
+        const int i=((y*W)+x)*4;
+        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5];
+        float lin[3]={pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2])};
+        float xyz[3]; pg_toXYZ(cam,lin,xyz);
+        float w[3];   pg_XYZtoDWG(xyz,w);
+        w[0]*=(1.0f+temp*0.20f); w[2]*=(1.0f-temp*0.20f); w[1]*=(1.0f+tint*0.20f);
+        if(density!=0.0f){ float hsv[3]; pg_rgb2hsv(w,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,w); }
+        for(int k=0;k<3;k++) w[k]=pg_pow(w[k]*gain+lift,1.0f/gamma);
+        float outc[3];
+        if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
+        float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
+        if(lutN>=2 && lutMix>0.0f){ float s[3]; pg_sampleLUT(lut,lutN,e,s); for(int k=0;k<3;k++) e[k]=e[k]+(s[k]-e[k])*lutMix; }
+        out[i]=e[0]; out[i+1]=e[1]; out[i+2]=e[2]; out[i+3]=in[i+3];
+    }
+}
+
+void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Params, int p_Camera, int p_Encode,
+                   const float* p_Lut, int p_LutSize, float p_LutMix, const float* p_Input, float* p_Output)
+{
+    cudaStream_t stream = static_cast<cudaStream_t>(p_Stream);
+    dim3 threads(16, 16, 1);
+    dim3 blocks((p_Width + threads.x - 1) / threads.x, (p_Height + threads.y - 1) / threads.y, 1);
+
+    float* d_params = nullptr;
+    cudaMalloc(&d_params, sizeof(float) * 6);
+    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 6, cudaMemcpyHostToDevice, stream);
+
+    int lutN = (p_Lut && p_LutSize >= 2) ? p_LutSize : 0;
+    float* d_lut = nullptr;
+    size_t lutCount = lutN ? (size_t)lutN*lutN*lutN*3 : 1;
+    cudaMalloc(&d_lut, sizeof(float) * lutCount);
+    if (lutN) cudaMemcpyAsync(d_lut, p_Lut, sizeof(float) * lutCount, cudaMemcpyHostToDevice, stream);
+
+    PowerGradeKernel<<<blocks, threads, 0, stream>>>(p_Width, p_Height, d_params, p_Camera, p_Encode, d_lut, lutN, p_LutMix, p_Input, p_Output);
+    cudaStreamSynchronize(stream);
+    cudaFree(d_params);
+    cudaFree(d_lut);
+}

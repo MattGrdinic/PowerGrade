@@ -1,0 +1,6 @@
+# build artifacts
+build/
+*.o
+*.ofx
+*.ofx.bundle/
+.DS_Store
