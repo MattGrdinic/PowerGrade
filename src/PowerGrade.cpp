@@ -410,7 +410,7 @@ void PowerGradeFactory::describe(OFX::ImageEffectDescriptor& p_Desc)
     p_Desc.setSupportsMultipleClipPARs(kSupportsMultipleClipPARs);
 
     p_Desc.setSupportsOpenCLBuffersRender(true);
-#ifndef __APPLE__
+#ifdef OFX_SUPPORTS_CUDARENDER
     p_Desc.setSupportsCudaRender(true);
     p_Desc.setSupportsCudaStream(true);
 #endif
@@ -534,7 +534,17 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     filmLut->setHint("Built-in film-look LUT (Resolve's Film Looks). Active when LUT Mode = Film Look; encodes to Cineon automatically.");
     if (s_FilmLuts.empty()) filmLut->appendOption("(no .cube LUTs found)");
     else for (const auto& fl : s_FilmLuts) filmLut->appendOption(fl.first);
-    filmLut->setDefault(0);
+    // Default to Kodak 2383 D60 (prefer the Rec.709 variant, since the film path outputs Rec.709).
+    int filmDefault = 0;
+    for (size_t i = 0; i < s_FilmLuts.size(); ++i) {
+        std::string n = s_FilmLuts[i].first;
+        std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+        if (n.find("kodak 2383 d60") != std::string::npos) {
+            filmDefault = (int)i;
+            if (n.find("rec709") != std::string::npos) break;   // prefer Rec.709 variant
+        }
+    }
+    filmLut->setDefault(filmDefault);
     filmLut->setParent(*gLut);
     page->addChild(*filmLut);
 
