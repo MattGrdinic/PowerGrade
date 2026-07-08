@@ -197,11 +197,38 @@ make test            # or: cmake --build build-cmake --target pipeline_test && .
 CI (GitHub Actions) builds the bundle and runs these tests on macOS and Windows for every
 push, and attaches release artifacts on tags.
 
-## Releases
+## Cutting a release
 
-Tag `vX.Y.Z` and push — CI builds the macOS universal bundle and the Windows bundle,
-zips each with its installer, and publishes a GitHub Release. See
-`.github/workflows/ci.yml`.
+Releases are **git-tag driven** — pushing a `v*` tag is the only trigger. There is no
+manual upload step.
+
+**When to run it:** after your changes are merged to `main` and CI is green there. A
+release should represent a known-good `main`.
+
+**How to run it:**
+
+```bash
+git checkout main && git pull          # be on the merged, green main
+git tag v0.1.0                         # semantic version, must start with "v"
+git push origin v0.1.0                 # this push is what triggers the release
+```
+
+**What it does** (`.github/workflows/ci.yml`, the `release` job — it's skipped on normal
+pushes and only runs for `refs/tags/v*`):
+
+1. Builds and **tests** on macOS **and** Windows (the same `build` matrix as every push).
+2. Packages a zip per OS — each contains `PowerGrade.ofx.bundle` **plus its installer**
+   (`install-macos.command` / `install-windows.bat`).
+3. Publishes a **GitHub Release** named for the tag, attaches both zips, and
+   auto-generates release notes from the merged commits.
+
+So the whole flow is: **merge → green `main` → tag `vX.Y.Z` → push tag → Release appears
+under [Releases](../../releases)** with ready-to-install downloads.
+
+**Versioning:** use [SemVer](https://semver.org) — `vMAJOR.MINOR.PATCH`. The plugin's own
+internal version is `kPluginVersionMajor` / `kPluginVersionMinor` in `src/PowerGrade.cpp`;
+bump it to match when you cut a release so Resolve reports the same number. If a tag was
+wrong, delete it (`git push origin :refs/tags/vX.Y.Z`) and re-tag.
 
 ## License
 
