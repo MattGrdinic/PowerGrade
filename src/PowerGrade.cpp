@@ -31,7 +31,7 @@
 #define kSupportsMultiResolution    false
 #define kSupportsMultipleClipPARs   false
 
-#define kParamCount 10 // temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon
+#define kParamCount 12 // temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon,rawExp,rawTemp
 
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
 #define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
@@ -234,6 +234,8 @@ private:
     OFX::Clip* m_SrcClip;
 
     OFX::ChoiceParam* m_Camera;
+    OFX::DoubleParam* m_RawExp;
+    OFX::DoubleParam* m_RawTemp;
     OFX::DoubleParam* m_Temp;
     OFX::DoubleParam* m_Tint;
     OFX::DoubleParam* m_OffTemp;
@@ -261,6 +263,8 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
     m_SrcClip = fetchClip(kOfxImageEffectSimpleSourceClipName);
 
     m_Camera  = fetchChoiceParam("camera");
+    m_RawExp  = fetchDoubleParam("rawExp");
+    m_RawTemp = fetchDoubleParam("rawTemp");
     m_Temp    = fetchDoubleParam("temp");
     m_Tint    = fetchDoubleParam("tint");
     m_OffTemp = fetchDoubleParam("offTemp");
@@ -355,6 +359,8 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     params[7] = (float)m_OffTint->getValueAtTime(p_Args.time);
     params[8] = (float)m_PostExp->getValueAtTime(p_Args.time);
     params[9] = (float)m_PostCon->getValueAtTime(p_Args.time);
+    params[10] = (float)m_RawExp->getValueAtTime(p_Args.time);
+    params[11] = (float)m_RawTemp->getValueAtTime(p_Args.time);
 
     // Resolve the active LUT (path from mode) and load it (cached by path).
     std::string lutPath;
@@ -468,6 +474,11 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     cam->setDefault(0);
     cam->setParent(*gInput);
     page->addChild(*cam);
+
+    // RAW-tab analogs: exposure + white balance applied on scene-linear before the CST,
+    // so the Camera RAW tab can be left at its defaults (simplifies the round-trip).
+    page->addChild(*defineSlider(p_Desc, "rawExp", "RAW Exposure", "Exposure in stops on scene light, before the CST. Matches the Camera RAW tab's Exposure control.", 0.0, -5.0, 5.0, 0.01, gInput));
+    page->addChild(*defineSlider(p_Desc, "rawTemp", "RAW Temperature", "White-balance color temperature in Kelvin (chromatic adaptation). Raise = warmer, lower = cooler. 6500 = neutral. Approximates the Camera RAW tab's Temp (not byte-exact: no sensor metadata reaches the plugin).", 6500.0, 2000.0, 15000.0, 10.0, gInput));
 
     // ---- 2. Balance ----  (white balance in linear; watch the vectorscope while adjusting)
     GroupParamDescriptor* gBal = p_Desc.defineGroupParam("gBalance");

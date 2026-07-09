@@ -42,6 +42,26 @@ __device__ void pg_XYZtoDWG(const float v[3], float o[3]){ const float m[9]={1.5
 __device__ void pg_DWGtoXYZ(const float v[3], float o[3]){ const float m[9]={0.7006223f,0.1487748f,0.1010587f,0.2740150f,0.8736457f,-0.1476607f,-0.0989629f,-0.1378905f,1.3259942f}; mul33(m,v,o); }
 __device__ void pg_XYZto709(const float v[3], float o[3]){ const float m[9]={3.2409699f,-1.5373832f,-0.4986108f,-0.9692436f,1.8759675f,0.0415551f,0.0556301f,-0.2039770f,1.0569715f}; mul33(m,v,o); }
 
+__device__ void pg_cct_xy(float T, float& x, float& y){
+    float t1=1.0f/T,t2=t1*t1,t3=t2*t1;
+    float xc=(T<4000.0f)?(-0.2661239e9f*t3-0.2343589e6f*t2+0.8776956e3f*t1+0.179910f)
+                        :(-3.0258469e9f*t3+2.1070379e6f*t2+0.2226347e3f*t1+0.240390f);
+    float xc2=xc*xc,xc3=xc2*xc;
+    float yc=(T<2222.0f)?(-1.1063814f*xc3-1.34811020f*xc2+2.18555832f*xc-0.20219683f)
+            :(T<4000.0f)?(-0.9549476f*xc3-1.37418593f*xc2+2.09137015f*xc-0.16748867f)
+                        :(3.0817580f*xc3-5.87338670f*xc2+3.75112997f*xc-0.37001483f);
+    x=xc; y=yc;
+}
+__device__ void pg_whitebalance(float T, float v[3]){
+    if(T<=0.0f || (T>6499.0f && T<6501.0f)) return;
+    float sx,sy; pg_cct_xy(T,sx,sy);
+    float sw[3]={sx/sy,1.0f,(1.0f-sx-sy)/sy}; const float dw[3]={0.95047f,1.0f,1.08883f};
+    const float MA[9]={0.8951f,0.2664f,-0.1614f,-0.7502f,1.7135f,0.0367f,0.0389f,-0.0685f,1.0296f};
+    const float MAi[9]={0.9869929f,-0.1470543f,0.1599627f,0.4323053f,0.5183603f,0.0492912f,-0.0085287f,0.0400428f,0.9684867f};
+    float sl[3],dl[3],pl[3]; mul33(MA,sw,sl); mul33(MA,dw,dl); mul33(MA,v,pl);
+    pl[0]*=dl[0]/sl[0]; pl[1]*=dl[1]/sl[1]; pl[2]*=dl[2]/sl[2]; mul33(MAi,pl,v);
+}
+
 __device__ void pg_rgb2hsv(const float c[3], float o[3]){
     float mx=fmaxf(c[0],fmaxf(c[1],c[2])), mn=fminf(c[0],fminf(c[1],c[2])); float v=mx,d=mx-mn; float s=(mx<=0.0f)?0.0f:(d/mx); float h=0.0f;
     if(d>0.0f){ if(mx==c[0]) h=(c[1]-c[2])/d+(c[1]<c[2]?6.0f:0.0f); else if(mx==c[1]) h=(c[2]-c[0])/d+2.0f; else h=(c[0]-c[1])/d+4.0f; h/=6.0f; }
@@ -84,9 +104,11 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
     const int y=blockIdx.y*blockDim.y+threadIdx.y;
     if(x<W && y<H){
         const int i=((y*W)+x)*4;
-        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7];
-        float lin[3]={pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2])};
+        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7],rawExp=P[10],rawTemp=P[11];
+        float ex0=exp2f(rawExp);   // RAW exposure (stops), pre-CST
+        float lin[3]={pg_decode(cam,in[i])*ex0,pg_decode(cam,in[i+1])*ex0,pg_decode(cam,in[i+2])*ex0};
         float xyz[3]; pg_toXYZ(cam,lin,xyz);
+        pg_whitebalance(rawTemp,xyz);            // RAW white balance in XYZ
         float w[3];   pg_XYZtoDWG(xyz,w);
         w[0]*=(1.0f+temp*0.20f); w[2]*=(1.0f-temp*0.20f); w[1]*=(1.0f+tint*0.20f);
         w[0]+=offTemp*0.10f; w[2]-=offTemp*0.10f; w[1]+=offTint*0.10f;
@@ -109,8 +131,8 @@ void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Par
     dim3 blocks((p_Width + threads.x - 1) / threads.x, (p_Height + threads.y - 1) / threads.y, 1);
 
     float* d_params = nullptr;
-    cudaMalloc(&d_params, sizeof(float) * 10);
-    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 10, cudaMemcpyHostToDevice, stream);
+    cudaMalloc(&d_params, sizeof(float) * 12);
+    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 12, cudaMemcpyHostToDevice, stream);
 
     int lutN = (p_Lut && p_LutSize >= 2) ? p_LutSize : 0;
     float* d_lut = nullptr;

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 //
 //  Faithful to the reference node tree:  CST -> Balance -> Density -> Exposure -> Output
+//    0. RAW       : exposure (stops) + white balance (Kelvin) on scene-linear, pre-CST
+//                   (mirrors the Camera RAW tab so that tab can be left untouched)
 //    1. camera log -> scene-linear            (per-camera decode)
 //    2. camera gamut -> XYZ -> DaVinci Wide Gamut LINEAR   (working space, matches tree)
 //    3. Balance   : 2-axis white balance (temp/tint) in linear      [linear color-wheel analog]
@@ -10,7 +12,8 @@
 //    5. Exposure  : basic Lift / Gamma / Gain
 //    6. Output    : DWG -> {Rec709 g2.4 | Cineon Log | DaVinci Intermediate | Linear}
 //
-//  P[] layout: {temp, tint, density, lift, gamma, gain}
+//  P[] layout: {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon,
+//               rawExp, rawTemp}   (postExp/postCon applied by the caller, not process())
 #pragma once
 #include <cmath>
 #include <algorithm>
@@ -106,6 +109,38 @@ static inline void XYZ_to_709(const float v[3], float o[3])
     mul33(m, v, o);
 }
 
+// ---------- RAW-style white balance (mirrors the Camera RAW tab's Temp control) ----------
+// Correlated colour temperature (Kelvin) -> CIE xy on the Planckian locus (Kim et al. 2002).
+static inline void cct_to_xy(float T, float& x, float& y)
+{
+    float t1 = 1.0f/T, t2 = t1*t1, t3 = t2*t1;
+    float xc = (T < 4000.0f)
+        ? (-0.2661239e9f*t3 - 0.2343589e6f*t2 + 0.8776956e3f*t1 + 0.179910f)
+        : (-3.0258469e9f*t3 + 2.1070379e6f*t2 + 0.2226347e3f*t1 + 0.240390f);
+    float xc2 = xc*xc, xc3 = xc2*xc;
+    float yc = (T < 2222.0f) ? (-1.1063814f*xc3 - 1.34811020f*xc2 + 2.18555832f*xc - 0.20219683f)
+             : (T < 4000.0f) ? (-0.9549476f*xc3 - 1.37418593f*xc2 + 2.09137015f*xc - 0.16748867f)
+                             : ( 3.0817580f*xc3 - 5.87338670f*xc2 + 3.75112997f*xc - 0.37001483f);
+    x = xc; y = yc;
+}
+// Bradford chromatic adaptation of an XYZ triplet, treating the scene as lit by a
+// blackbody at T Kelvin and adapting it to the D65 working white. Raising T (bluer
+// assumed source) warms the image; lowering it cools — matching Resolve's Temp knob.
+// Identity at 6500 K.
+static inline void white_balance(float T, float v[3])
+{
+    if (T <= 0.0f || (T > 6499.0f && T < 6501.0f)) return;
+    float sx, sy; cct_to_xy(T, sx, sy);
+    float sw[3] = { sx/sy, 1.0f, (1.0f - sx - sy)/sy };   // source white (blackbody@T)
+    const float dw[3] = { 0.95047f, 1.0f, 1.08883f };      // dest white (D65)
+    const float MA[9]  = { 0.8951f,0.2664f,-0.1614f, -0.7502f,1.7135f,0.0367f, 0.0389f,-0.0685f,1.0296f };
+    const float MAi[9] = { 0.9869929f,-0.1470543f,0.1599627f, 0.4323053f,0.5183603f,0.0492912f, -0.0085287f,0.0400428f,0.9684867f };
+    float sl[3], dl[3], pl[3];
+    mul33(MA, sw, sl); mul33(MA, dw, dl); mul33(MA, v, pl);
+    pl[0] *= dl[0]/sl[0]; pl[1] *= dl[1]/sl[1]; pl[2] *= dl[2]/sl[2];   // von Kries scale in LMS
+    mul33(MAi, pl, v);
+}
+
 // ---------- HSV (works on linear values; V = max, S in [0,1]) ----------
 static inline void rgb2hsv(float r,float g,float b,float& h,float& s,float& v)
 {
@@ -194,10 +229,15 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
                            float& outR, float& outG, float& outB)
 {
     const float temp=P[0], tint=P[1], density=P[2], lift=P[3], gamma=P[4], gain=P[5], offTemp=P[6], offTint=P[7];
+    const float rawExp=P[10], rawTemp=P[11];   // RAW-tab analogs: exposure (stops) + white balance (Kelvin)
 
+    // 0. RAW Exposure — linear gain in stops on scene light, before the CST (matches the
+    //    Camera RAW tab's Exposure, which acts on sensor-linear before the log curve).
+    float ex = exp2f(rawExp);
     // 1-2. decode + into DWG-linear working space
-    float lin[3] = { decode_log(cam,inR), decode_log(cam,inG), decode_log(cam,inB) };
+    float lin[3] = { decode_log(cam,inR)*ex, decode_log(cam,inG)*ex, decode_log(cam,inB)*ex };
     float xyz[3]; to_XYZ(cam, lin, xyz);
+    white_balance(rawTemp, xyz);               // RAW Temp: chromatic adapt in XYZ (nearest to sensor)
     float w[3];   XYZ_to_DWG(xyz, w);
 
     // 3. Balance (2-axis white balance in linear)

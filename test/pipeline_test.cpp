@@ -15,8 +15,8 @@ static void check(bool ok, const std::string& name) {
 static bool close(float a, float b, float eps = 1e-3f) { return std::fabs(a - b) <= eps; }
 static bool finite3(float r, float g, float b) { return std::isfinite(r) && std::isfinite(g) && std::isfinite(b); }
 
-// neutral parameter vector: temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon
-static void neutral(float P[10]) { for (int i=0;i<10;i++) P[i]=0.f; P[4]=1.f; P[5]=1.f; P[9]=1.f; }
+// neutral parameter vector: temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon,rawExp,rawTemp
+static void neutral(float P[12]) { for (int i=0;i<12;i++) P[i]=0.f; P[4]=1.f; P[5]=1.f; P[9]=1.f; P[11]=6500.f; }
 
 int main() {
     printf("PowerGrade pipeline tests\n");
@@ -72,7 +72,7 @@ int main() {
 
     // 5. Full pipeline is finite for every camera x encode x sample input
     {
-        float P[10]; neutral(P);
+        float P[12]; neutral(P);
         bool ok = true;
         for (int cam = 0; cam <= 10; ++cam)
           for (int enc = 0; enc <= 3; ++enc)
@@ -85,7 +85,7 @@ int main() {
 
     // 6. Gain pivots black: a black input stays black under gain
     {
-        float P[10]; neutral(P); P[5] = 2.0f;            // gain = 2
+        float P[12]; neutral(P); P[5] = 2.0f;            // gain = 2
         float r,g,b; pg::process(0, 0, P, 0.f, 0.f, 0.f, r, g, b);
         check(close(r,0.f,2e-3f)&&close(g,0.f,2e-3f)&&close(b,0.f,2e-3f), "gain pins black");
     }
@@ -93,8 +93,8 @@ int main() {
     // 7. Lift pivots white: diffuse white (BMD/DI code ~0.5139 -> linear 1.0) unchanged by lift
     {
         const float whiteCode = pg::di_encode(1.0f);     // camera code that decodes to linear 1.0
-        float P0[10]; neutral(P0);
-        float P1[10]; neutral(P1); P1[3] = -0.25f;        // lift down
+        float P0[12]; neutral(P0);
+        float P1[12]; neutral(P1); P1[3] = -0.25f;        // lift down
         float a0,b0,c0, a1,b1,c1;
         pg::process(0, 0, P0, whiteCode, whiteCode, whiteCode, a0, b0, c0);
         pg::process(0, 0, P1, whiteCode, whiteCode, whiteCode, a1, b1, c1);
@@ -103,12 +103,36 @@ int main() {
 
     // 8. Lift does not amplify superwhites (BMD/DI code 1.0 -> linear ~100)
     {
-        float P0[10]; neutral(P0);
-        float P1[10]; neutral(P1); P1[3] = -0.25f;
+        float P0[12]; neutral(P0);
+        float P1[12]; neutral(P1); P1[3] = -0.25f;
         float a0,b0,c0, a1,b1,c1;
         pg::process(0, 3, P0, 1.0f, 1.0f, 1.0f, a0, b0, c0);   // enc=3 linear so we compare raw
         pg::process(0, 3, P1, 1.0f, 1.0f, 1.0f, a1, b1, c1);
         check(close(a0,a1,1e-2f), "lift leaves superwhites untouched");
+    }
+
+    // 9. RAW exposure: +1 stop doubles scene-linear (linear output path)
+    {
+        float P0[12]; neutral(P0);
+        float P1[12]; neutral(P1); P1[10] = 1.0f;    // +1 stop
+        float a0,b0,c0, a1,b1,c1;
+        pg::process(0, 3, P0, 0.5f, 0.5f, 0.5f, a0, b0, c0);
+        pg::process(0, 3, P1, 0.5f, 0.5f, 0.5f, a1, b1, c1);
+        check(close(a1,2.0f*a0,2e-2f)&&close(b1,2.0f*b0,2e-2f)&&close(c1,2.0f*c0,2e-2f),
+              "RAW exposure +1 stop doubles linear output");
+    }
+
+    // 10. RAW temperature: neutral at 6500; warmer raises R / lowers B, cooler the reverse
+    {
+        float P6[12]; neutral(P6);                    // rawTemp = 6500 (neutral)
+        float Pw[12]; neutral(Pw); Pw[11] = 9000.f;   // warmer
+        float Pc[12]; neutral(Pc); Pc[11] = 4000.f;   // cooler
+        float r6,g6,b6, rw,gw,bw, rc,gc,bc;
+        pg::process(0, 0, P6, 0.5f, 0.5f, 0.5f, r6, g6, b6);
+        pg::process(0, 0, Pw, 0.5f, 0.5f, 0.5f, rw, gw, bw);
+        pg::process(0, 0, Pc, 0.5f, 0.5f, 0.5f, rc, gc, bc);
+        check(finite3(r6,g6,b6) && rw>r6 && r6>rc && bw<b6 && b6<bc,
+              "RAW temp: warmer raises R / lowers B, 6500 sits between");
     }
 
     printf("%s (%d failure%s)\n", g_fail ? "TESTS FAILED" : "ALL TESTS PASSED", g_fail, g_fail==1?"":"s");
