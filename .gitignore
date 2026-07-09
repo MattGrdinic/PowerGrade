@@ -5,3 +5,5 @@ build-cmake/
 *.ofx
 *.ofx.bundle/
 .DS_Store
+
+local
