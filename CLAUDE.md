@@ -38,14 +38,17 @@ Per pixel, in `pg::process()`:
 4. **Density** = HSV saturation gain in **DI-log** — NOT linear. Linear blows out saturated
    reds; log enriches them. This was a real bug we fixed.
 5. output primaries: DWG → Rec.709 linear (or keep DWG for DI/Linear encodes)
-6. **Lift/Gamma/Gain in Rec.709 scene-OETF space** (linear toe). This is the big one —
-   we tried linear, DI-log, and pure-2.4 first and all were wrong. In scene space:
+6. **Lift/Gamma/Gain in the Rec.709 display curve** (linear toe). This is the big one —
+   we tried linear and DI-log first and both were wrong. The grade curve **follows the
+   output encode**: Scene OETF for the Scene encode, **pure gamma 2.4 for the Gamma 2.4
+   encode** (`g24` flag; `r709_24_enc/dec`). Either way:
    - **Gain** = multiply, pivots **black**
    - **Lift** = `lift*(1 - min(v,1))`, pivots **white**, clamped so **superwhites aren't amplified**
    - **Gamma** = power, pivots **black & white**
-   Matches Resolve's timeline primary wheels. `pg_lgg()` helper.
-7. output encode: **Rec.709 output = scene OETF, NOT pure gamma 2.4**. Matches the user's
-   Rec.709 (Scene) timeline so Lift's taper reads linearly on the scope. (`encode`/`pg_enc`)
+   Matches Resolve's timeline primary wheels. `pg_lgg(...,g24)` helper.
+7. output encode: **default Rec.709 output = scene OETF** (linear toe), so Lift's taper reads
+   linearly on a Rec.709 (Scene) timeline. **Rec.709 (Gamma 2.4)** = pure 2.4 power for a
+   display-referred/broadcast timeline; the grade curve in step 6 follows it. (`encode`/`pg_enc`)
 8. LUT + trilinear sample + mix (done in processor/kernels, after encode)
 9. post-LUT **Trim**: exposure (stops) + contrast about 0.5
 
@@ -55,7 +58,9 @@ rawTemp defaults to 6500 = neutral); `camera` + `outEncode` passed separately as
 
 Cameras (index): 0 BMD DWG/DI · 1 Sony S-Log3 · 2 ARRI LogC3 · 3 LogC4 · 4 Canon Log3 ·
 5 RED Log3G10 · 6 DJI D-Log · 7 Fuji F-Log2 · 8 Panasonic V-Log · 9 Rec.2100 HLG ·
-10 Rec.2100 PQ. Encodes: 0 Rec.709 (Scene) · 1 Cineon Log · 2 DaVinci Intermediate · 3 Linear.
+10 Rec.2100 PQ. Encodes: 0 Rec.709 (Scene) · 1 Rec.709 (Gamma 2.4) · 2 Cineon Log ·
+3 DaVinci Intermediate · 4 Linear. **709 primaries for enc ≤ 2** (Scene/2.4/Cineon); DI &
+Linear keep DWG primaries. Film Look LUT auto-sets enc=2 (Cineon); Custom Look sets enc=0.
 
 ## Build / test / install (macOS, the dev machine)
 ```bash
@@ -92,4 +97,5 @@ Branch per change → push → user opens PR and merges on GitHub (they do the m
 
 ## Likely next tasks
 Cut `v0.1.0`; validate OpenCL/CUDA on real HW; per-camera gamut validation; HDR tone-map
-(highlight roll-off); possibly a 2.4/Video output option with grade-space following.
+(highlight roll-off). (Done: Rec.709 Gamma 2.4 output with grade-space-following LGG,
+branch `feature/rec709-gamma24` — visually verify the 2.4 path in Resolve.)

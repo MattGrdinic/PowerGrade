@@ -75,14 +75,17 @@ __device__ void pg_hsv2rgb(const float c[3], float o[3]){
 }
 __device__ float pg_r709e(float L){ return (L<0.018f)?(4.5f*L):(1.099f*pg_pow(L,0.45f)-0.099f); }
 __device__ float pg_r709d(float V){ return (V<0.081f)?(V/4.5f):pg_pow((V+0.099f)/1.099f,1.0f/0.45f); }
-__device__ float pg_lgg(float L,float gain,float lift,float gamma){ float v=pg_r709e(L); v=v*gain; v=v+lift*(1.0f-fminf(v,1.0f)); v=pg_pow(v,1.0f/gamma); return pg_r709d(v); }
+__device__ float pg_r709_24e(float L){ return pg_pow(L,1.0f/2.4f); }
+__device__ float pg_r709_24d(float V){ return pg_pow(V,2.4f); }
+__device__ float pg_lgg(float L,float gain,float lift,float gamma,int g24){ float v=g24?pg_r709_24e(L):pg_r709e(L); v=v*gain; v=v+lift*(1.0f-fminf(v,1.0f)); v=pg_pow(v,1.0f/gamma); return g24?pg_r709_24d(v):pg_r709d(v); }
 __device__ float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
 __device__ float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
 
 __device__ float pg_enc(int enc, float x){
     if(enc==0) return pg_r709e(x);
-    else if(enc==1){ float code=685.0f+300.0f*log10f(fmaxf(x,1e-4f)); return fminf(fmaxf(code/1023.0f,0.0f),1.0f); }
-    else if(enc==2){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
+    else if(enc==1) return pg_r709_24e(x);
+    else if(enc==2){ float code=685.0f+300.0f*log10f(fmaxf(x,1e-4f)); return fminf(fmaxf(code/1023.0f,0.0f),1.0f); }
+    else if(enc==3){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
     else return x;
 }
 
@@ -114,8 +117,9 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
         w[0]+=offTemp*0.10f; w[2]-=offTemp*0.10f; w[1]+=offTint*0.10f;
         if(density!=0.0f){ float l[3]={pg_dienc(w[0]),pg_dienc(w[1]),pg_dienc(w[2])}; float hsv[3]; pg_rgb2hsv(l,hsv); hsv[1]=fminf(fmaxf(hsv[1]*(1.0f+density),0.0f),1.0f); pg_hsv2rgb(hsv,l); w[0]=pg_didec(l[0]); w[1]=pg_didec(l[1]); w[2]=pg_didec(l[2]); }
         float outc[3];
-        if(enc==0||enc==1){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }
-        for(int k=0;k<3;k++) outc[k]=pg_lgg(outc[k],gain,lift,gamma);  // LGG in Rec709 scene space
+        if(enc<=2){ float x2[3]; pg_DWGtoXYZ(w,x2); pg_XYZto709(x2,outc); } else { outc[0]=w[0];outc[1]=w[1];outc[2]=w[2]; }  // 709 primaries for Scene/2.4/Cineon
+        int g24=(enc==1)?1:0;                                         // grade curve follows output (2.4 vs Scene OETF)
+        for(int k=0;k<3;k++) outc[k]=pg_lgg(outc[k],gain,lift,gamma,g24);  // LGG in Rec.709 display curve
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
         if(lutN>=2 && lutMix>0.0f){ float s[3]; pg_sampleLUT(lut,lutN,e,s); for(int k=0;k<3;k++) e[k]=e[k]+(s[k]-e[k])*lutMix; }
         float ex=exp2f(P[8]); for(int k=0;k<3;k++) e[k]=(e[k]*ex-0.5f)*P[9]+0.5f;  // post-LUT trim

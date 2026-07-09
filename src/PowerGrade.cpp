@@ -344,7 +344,7 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
 
     // Couple the pre-LUT encoding to the LUT path so the two can't mismatch:
     //   Film Look LUTs require Cineon log input; Custom look LUTs use Rec.709.
-    if (lutMode == 2)      encode = 1;   // Film Look  -> Cineon Log
+    if (lutMode == 2)      encode = 2;   // Film Look  -> Cineon Log
     else if (lutMode == 1) encode = 0;   // Custom Look -> Rec.709 (Scene)
     // lutMode == 0 (None) -> user's Output Encode is used unchanged
 
@@ -516,8 +516,9 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gOut->setLabels("5  Output", "5  Output", "5  Output");
     ChoiceParamDescriptor* enc = p_Desc.defineChoiceParam("outEncode");
     enc->setLabels("Output Encode", "Output Encode", "Output Encode");
-    enc->setHint("Match your project's Timeline Color Space. With the recommended setup (see Setup / Help) leave this on Rec.709 (Scene). Applies when LUT Mode = None; a LUT auto-sets it (Film Look -> Cineon, Custom Look -> Rec.709).");
+    enc->setHint("Match your project's Timeline Color Space. Rec.709 (Scene) for a scene-referred timeline (recommended default), or Rec.709 (Gamma 2.4) for a display-referred / broadcast timeline. The Lift/Gamma/Gain wheels grade in whichever Rec.709 curve you pick, so they read linearly on that timeline's scope. Applies when LUT Mode = None; a LUT auto-sets it (Film Look -> Cineon, Custom Look -> Rec.709 Scene).");
     enc->appendOption("Rec.709 (Scene)");
+    enc->appendOption("Rec.709 (Gamma 2.4)");
     enc->appendOption("Cineon Log (feed film LUT)");
     enc->appendOption("DaVinci Intermediate");
     enc->appendOption("Linear");
@@ -603,11 +604,12 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     };
     helpLine("help0", "Requires", "Project > Color Management set to (not color managed):");
     helpLine("help1", "Color Science", "DaVinci YRGB");
-    helpLine("help2", "Timeline Color Space", "Rec.709 (Scene)");
+    helpLine("help2", "Timeline Color Space", "Rec.709 (Scene) recommended; Rec.709 Gamma 2.4 for broadcast/display-referred.");
     helpLine("help3", "Output Color Space", "Same as Timeline");
     helpLine("help4", "Clips", "Leave at camera raw/log defaults - no input CST or LUT before this node.");
     helpLine("help5", "Camera control", "Set it to match the source footage; this node does the input transform.");
-    helpLine("help6", "Output Encode", "Leave on Rec.709 (Scene) to match the timeline above; change only if your timeline differs.");
+    helpLine("help6", "Output Encode", "Match the Timeline Color Space above: Rec.709 (Scene) or Rec.709 (Gamma 2.4).");
+    helpLine("help7", "Monitor", "Calibrate it and have Resolve show your delivery space; check the grade on a second screen.");
 }
 
 ImageEffect* PowerGradeFactory::createInstance(OfxImageEffectHandle p_Handle, ContextEnum /*p_Context*/)

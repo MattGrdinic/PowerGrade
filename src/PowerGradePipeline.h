@@ -10,7 +10,9 @@
 //    3. Balance   : 2-axis white balance (temp/tint) in linear      [linear color-wheel analog]
 //    4. Density   : HSV saturation gain  (the "green channel of Gain in HSV" trick)
 //    5. Exposure  : basic Lift / Gamma / Gain
-//    6. Output    : DWG -> {Rec709 g2.4 | Cineon Log | DaVinci Intermediate | Linear}
+//    6. Output    : DWG -> {Rec.709 Scene | Rec.709 Gamma 2.4 | Cineon Log | DaVinci Intermediate | Linear}
+//                   Lift/Gamma/Gain runs in the chosen Rec.709 display curve (Scene OETF or
+//                   pure 2.4) so the wheels read linearly on whichever timeline you match.
 //
 //  P[] layout: {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon,
 //               rawExp, rawTemp}   (postExp/postCon applied by the caller, not process())
@@ -174,6 +176,11 @@ static inline void hsv2rgb(float h,float s,float v,float& r,float& g,float& b)
 static inline float r709_enc(float L) { return (L < 0.018f) ? (4.5f*L) : (1.099f*safe_pow(L,0.45f) - 0.099f); }
 static inline float r709_dec(float V) { return (V < 0.081f) ? (V/4.5f) : safe_pow((V+0.099f)/1.099f, 1.0f/0.45f); }
 
+// Rec.709 display gamma 2.4 (pure power, no linear toe). Used when the timeline is
+// Rec.709 Gamma 2.4 (broadcast/display-referred) rather than Rec.709 (Scene).
+static inline float r709_24_enc(float L) { return safe_pow(L, 1.0f/2.4f); }
+static inline float r709_24_dec(float V) { return safe_pow(V, 2.4f); }
+
 // DaVinci Intermediate log encode/decode (the space the tree's Lift/Gamma/Gain runs in)
 static inline float di_encode(float x)
 { const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); }
@@ -183,8 +190,9 @@ static inline float di_decode(float x)
 static inline float encode(int enc, float x)
 {
     if (enc == 0) return r709_enc(x);                                    // Rec.709 (Scene) OETF
-    if (enc == 1) { float code = 685.0f + 300.0f*log10f(x < 1e-4f ? 1e-4f : x); return std::min(std::max(code/1023.0f,0.0f),1.0f); } // Cineon
-    if (enc == 2) { const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); } // DI
+    if (enc == 1) return r709_24_enc(x);                                 // Rec.709 (Gamma 2.4)
+    if (enc == 2) { float code = 685.0f + 300.0f*log10f(x < 1e-4f ? 1e-4f : x); return std::min(std::max(code/1023.0f,0.0f),1.0f); } // Cineon
+    if (enc == 3) { const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2f(x+A)+B)*C):(x*M); } // DI
     return x;                                                             // linear
 }
 
@@ -265,24 +273,27 @@ static inline void process(int cam, int enc, const float* P, float inR, float in
     //    as normal SDR wheels instead of Lift acting like an HDR/linear wheel.
     // 5. Output primaries (still linear)
     float outc[3];
-    if (enc == 0 || enc == 1) {           // Rec.709 primaries (display / film-LUT feed)
+    if (enc <= 2) {                       // Rec.709 primaries: Scene(0), Gamma 2.4(1), Cineon(2)
         float x2[3]; DWG_to_XYZ(w, x2);
         XYZ_to_709(x2, outc);
-    } else {                              // DI / Linear keep DWG primaries
+    } else {                              // DI(3) / Linear(4) keep DWG primaries
         outc[0]=w[0]; outc[1]=w[1]; outc[2]=w[2];
     }
 
-    // 6. Lift / Gamma / Gain in Rec.709 scene-OETF space (linear toe), pivoting like
-    //    Resolve's timeline wheels. Applied as distinct steps so each pins correctly:
+    // 6. Lift / Gamma / Gain in the Rec.709 display curve, pivoting like Resolve's timeline
+    //    wheels. The grade curve FOLLOWS the output so the wheels read linearly on whichever
+    //    timeline you match: pure gamma 2.4 for the Gamma 2.4 encode, else the Scene OETF
+    //    (linear toe). Applied as distinct steps so each pins correctly:
     //      gain  : multiply, pivot @ black
     //      lift  : pivot @ white, reach clamped at white so superwhites aren't amplified
     //      gamma : power, pivot @ black & white
+    const bool g24 = (enc == 1);
     for (int i=0;i<3;i++) {
-        float v = r709_enc(outc[i]);
+        float v = g24 ? r709_24_enc(outc[i]) : r709_enc(outc[i]);
         v = v * gain;
         v = v + lift * (1.0f - (v < 1.0f ? v : 1.0f));
         v = safe_pow(v, 1.0f/gamma);
-        outc[i] = r709_dec(v);
+        outc[i] = g24 ? r709_24_dec(v) : r709_dec(v);
     }
 
     // 7. Final output encode
