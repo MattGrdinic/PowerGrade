@@ -25,6 +25,13 @@ loop count + kernel signature, CUDA `cudaMalloc`/`cudaMemcpy` size.
 
 ## Pipeline order + SPACES (the crux — took many iterations, do NOT regress)
 Per pixel, in `pg::process()`:
+0. **RAW** (Camera-RAW-tab analogs, so that tab can be left alone):
+   - **RAW Exposure** = linear gain in stops on scene light, right after `decode_log`, before
+     the CST. This *is* what RAW exposure does (sensor-linear multiply) → near-exact match.
+   - **RAW Temp** = Kelvin white balance via a **Bradford chromatic adaptation** in XYZ (right
+     after `to_XYZ`, closest to sensor). Blackbody(T) source white → D65; raise T = warmer.
+     Identity at 6500 K. NOT byte-exact to the RAW tab (no sensor metadata reaches OFX), but a
+     physically-real WB. `white_balance()` / `cct_to_xy()` (Kim et al. locus) helpers.
 1. camera log → scene-linear (`decode_log`)
 2. camera gamut → XYZ → **DaVinci Wide Gamut linear** (working space)
 3. **Balance** in linear: Gain (multiplicative, pivots highlights) + Offset (additive, even)
@@ -42,8 +49,9 @@ Per pixel, in `pg::process()`:
 8. LUT + trilinear sample + mix (done in processor/kernels, after encode)
 9. post-LUT **Trim**: exposure (stops) + contrast about 0.5
 
-`P[10] = {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon}`;
-`camera` + `outEncode` passed separately as ints.
+`P[12] = {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon, rawExp,
+rawTemp}` (postExp/postCon applied by the caller in the trim step, not inside `process()`;
+rawTemp defaults to 6500 = neutral); `camera` + `outEncode` passed separately as ints.
 
 Cameras (index): 0 BMD DWG/DI · 1 Sony S-Log3 · 2 ARRI LogC3 · 3 LogC4 · 4 Canon Log3 ·
 5 RED Log3G10 · 6 DJI D-Log · 7 Fuji F-Log2 · 8 Panasonic V-Log · 9 Rec.2100 HLG ·

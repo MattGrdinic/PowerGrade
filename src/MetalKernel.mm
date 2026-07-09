@@ -45,6 +45,28 @@ inline float3 pg_XYZtoDWG(float3 v){ return pg_mv(float3(1.5166283f,-0.2814601f,
 inline float3 pg_DWGtoXYZ(float3 v){ return pg_mv(float3(0.7006223f,0.1487748f,0.1010587f),float3(0.2740150f,0.8736457f,-0.1476607f),float3(-0.0989629f,-0.1378905f,1.3259942f),v); }
 inline float3 pg_XYZto709(float3 v){ return pg_mv(float3(3.2409699f,-1.5373832f,-0.4986108f),float3(-0.9692436f,1.8759675f,0.0415551f),float3(0.0556301f,-0.2039770f,1.0569715f),v); }
 
+inline float2 pg_cct_xy(float T){
+    float t1=1.0f/T,t2=t1*t1,t3=t2*t1;
+    float xc=(T<4000.0f)?(-0.2661239e9f*t3-0.2343589e6f*t2+0.8776956e3f*t1+0.179910f)
+                        :(-3.0258469e9f*t3+2.1070379e6f*t2+0.2226347e3f*t1+0.240390f);
+    float xc2=xc*xc,xc3=xc2*xc;
+    float yc=(T<2222.0f)?(-1.1063814f*xc3-1.34811020f*xc2+2.18555832f*xc-0.20219683f)
+            :(T<4000.0f)?(-0.9549476f*xc3-1.37418593f*xc2+2.09137015f*xc-0.16748867f)
+                        :(3.0817580f*xc3-5.87338670f*xc2+3.75112997f*xc-0.37001483f);
+    return float2(xc,yc);
+}
+inline float3 pg_whitebalance(float T, float3 v){
+    if(T<=0.0f || (T>6499.0f && T<6501.0f)) return v;
+    float2 xy=pg_cct_xy(T);
+    float3 sw=float3(xy.x/xy.y, 1.0f, (1.0f-xy.x-xy.y)/xy.y);
+    float3 dw=float3(0.95047f,1.0f,1.08883f);
+    float3 ma0=float3(0.8951f,0.2664f,-0.1614f),ma1=float3(-0.7502f,1.7135f,0.0367f),ma2=float3(0.0389f,-0.0685f,1.0296f);
+    float3 mai0=float3(0.9869929f,-0.1470543f,0.1599627f),mai1=float3(0.4323053f,0.5183603f,0.0492912f),mai2=float3(-0.0085287f,0.0400428f,0.9684867f);
+    float3 sl=pg_mv(ma0,ma1,ma2,sw), dl=pg_mv(ma0,ma1,ma2,dw), pl=pg_mv(ma0,ma1,ma2,v);
+    pl=pl*(dl/sl);
+    return pg_mv(mai0,mai1,mai2,pl);
+}
+
 inline float3 pg_rgb2hsv(float3 c){
     float mx=max(c.x,max(c.y,c.z)), mn=min(c.x,min(c.y,c.z));
     float v=mx, d=mx-mn; float s=(mx<=0.0f)?0.0f:(d/mx); float h=0.0f;
@@ -105,9 +127,10 @@ kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[b
 {
     if(id.x<(uint)W && id.y<(uint)H){
         int i=((id.y*W)+id.x)*4;
-        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7];
-        float3 lin = float3(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]));
-        float3 w = pg_XYZtoDWG(pg_toXYZ(cam,lin));           // working: DWG linear
+        float temp=P[0],tint=P[1],density=P[2],lift=P[3],gamma=P[4],gain=P[5],offTemp=P[6],offTint=P[7],rawExp=P[10],rawTemp=P[11];
+        float ex0=exp2(rawExp);                              // RAW exposure (stops), pre-CST
+        float3 lin = float3(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]))*ex0;
+        float3 w = pg_XYZtoDWG(pg_whitebalance(rawTemp,pg_toXYZ(cam,lin)));  // RAW WB in XYZ, then DWG linear
         w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // gain balance
         w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;               // offset balance
         if(density!=0.0f){ float3 l=float3(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=float3(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } // density in DI-log
@@ -197,7 +220,7 @@ void RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Para
     [computeEncoder setBuffer:dstDeviceBuf offset:0 atIndex:8];
     [computeEncoder setBytes:&p_Width  length:sizeof(int) atIndex:11];
     [computeEncoder setBytes:&p_Height length:sizeof(int) atIndex:12];
-    [computeEncoder setBytes:p_Params  length:sizeof(float)*10 atIndex:13];
+    [computeEncoder setBytes:p_Params  length:sizeof(float)*12 atIndex:13];
     [computeEncoder setBytes:&p_Camera length:sizeof(int) atIndex:14];
     [computeEncoder setBytes:&p_Encode length:sizeof(int) atIndex:15];
     [computeEncoder setBytes:&lutN     length:sizeof(int) atIndex:16];

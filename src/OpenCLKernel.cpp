@@ -47,6 +47,18 @@ const char* KernelSource = "\n" \
 "inline float3 pg_XYZtoDWG(float3 v){ return pg_mv((float3)(1.5166283f,-0.2814601f,-0.1469306f),(float3)(-0.4647205f,1.2513509f,0.1747665f),(float3)(0.0648641f,0.1091221f,0.7613593f),v); } \n" \
 "inline float3 pg_DWGtoXYZ(float3 v){ return pg_mv((float3)(0.7006223f,0.1487748f,0.1010587f),(float3)(0.2740150f,0.8736457f,-0.1476607f),(float3)(-0.0989629f,-0.1378905f,1.3259942f),v); } \n" \
 "inline float3 pg_XYZto709(float3 v){ return pg_mv((float3)(3.2409699f,-1.5373832f,-0.4986108f),(float3)(-0.9692436f,1.8759675f,0.0415551f),(float3)(0.0556301f,-0.2039770f,1.0569715f),v); } \n" \
+"inline float2 pg_cct_xy(float T){                                                                              \n" \
+"  float t1=1.0f/T,t2=t1*t1,t3=t2*t1;                                                                           \n" \
+"  float xc=(T<4000.0f)?(-0.2661239e9f*t3-0.2343589e6f*t2+0.8776956e3f*t1+0.179910f):(-3.0258469e9f*t3+2.1070379e6f*t2+0.2226347e3f*t1+0.240390f); \n" \
+"  float xc2=xc*xc,xc3=xc2*xc;                                                                                  \n" \
+"  float yc=(T<2222.0f)?(-1.1063814f*xc3-1.34811020f*xc2+2.18555832f*xc-0.20219683f):(T<4000.0f)?(-0.9549476f*xc3-1.37418593f*xc2+2.09137015f*xc-0.16748867f):(3.0817580f*xc3-5.87338670f*xc2+3.75112997f*xc-0.37001483f); \n" \
+"  return (float2)(xc,yc); }                                                                                    \n" \
+"inline float3 pg_whitebalance(float T, float3 v){                                                             \n" \
+"  if(T<=0.0f || (T>6499.0f && T<6501.0f)) return v;                                                            \n" \
+"  float2 xy=pg_cct_xy(T); float3 sw=(float3)(xy.x/xy.y,1.0f,(1.0f-xy.x-xy.y)/xy.y); float3 dw=(float3)(0.95047f,1.0f,1.08883f); \n" \
+"  float3 ma0=(float3)(0.8951f,0.2664f,-0.1614f),ma1=(float3)(-0.7502f,1.7135f,0.0367f),ma2=(float3)(0.0389f,-0.0685f,1.0296f); \n" \
+"  float3 mai0=(float3)(0.9869929f,-0.1470543f,0.1599627f),mai1=(float3)(0.4323053f,0.5183603f,0.0492912f),mai2=(float3)(-0.0085287f,0.0400428f,0.9684867f); \n" \
+"  float3 sl=pg_mv(ma0,ma1,ma2,sw),dl=pg_mv(ma0,ma1,ma2,dw),pl=pg_mv(ma0,ma1,ma2,v); pl=pl*(dl/sl); return pg_mv(mai0,mai1,mai2,pl); } \n" \
 "inline float3 pg_rgb2hsv(float3 c){                                                                            \n" \
 "  float mx=fmax(c.x,fmax(c.y,c.z)), mn=fmin(c.x,fmin(c.y,c.z)); float v=mx,d=mx-mn; float s=(mx<=0.0f)?0.0f:(d/mx); float h=0.0f; \n" \
 "  if(d>0.0f){ if(mx==c.x) h=(c.y-c.z)/d+(c.y<c.z?6.0f:0.0f); else if(mx==c.y) h=(c.z-c.x)/d+2.0f; else h=(c.x-c.y)/d+4.0f; h/=6.0f; } \n" \
@@ -79,13 +91,14 @@ const char* KernelSource = "\n" \
 "  return (float3)(res[0],res[1],res[2]); }                                                                     \n" \
 "__kernel void PowerGradeKernel(int W,int H,int cam,int enc,                                                    \n" \
 "  float temp,float tint,float density,float lift,float gamma,float gain,float offTemp,float offTint,           \n" \
-"  float postExp,float postCon, int lutN, float lutMix, __global const float* lut,                              \n" \
+"  float postExp,float postCon,float rawExp,float rawTemp, int lutN, float lutMix, __global const float* lut,   \n" \
 "  __global const float* in, __global float* out) {                                                             \n" \
 "  const int x=get_global_id(0); const int y=get_global_id(1);                                                  \n" \
 "  if(x<W && y<H){                                                                                              \n" \
 "    const int i=((y*W)+x)*4;                                                                                    \n" \
-"    float3 lin=(float3)(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]));                   \n" \
-"    float3 w=pg_XYZtoDWG(pg_toXYZ(cam,lin));                                                                    \n" \
+"    float ex0=exp2(rawExp);                                                                                     \n" \
+"    float3 lin=(float3)(pg_decode(cam,in[i]),pg_decode(cam,in[i+1]),pg_decode(cam,in[i+2]))*ex0;               \n" \
+"    float3 w=pg_XYZtoDWG(pg_whitebalance(rawTemp,pg_toXYZ(cam,lin)));                                           \n" \
 "    w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);                                     \n" \
 "    w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;                                                 \n" \
 "    if(density!=0.0f){ float3 l=(float3)(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=(float3)(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } \n" \
@@ -201,7 +214,7 @@ void RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Camera);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Encode);
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < 12; ++i)
         error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Params[i]);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &lutN);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_LutMix);
