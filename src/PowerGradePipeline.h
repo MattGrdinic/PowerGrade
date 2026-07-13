@@ -62,6 +62,9 @@ static inline float decode_log(int cam, float x)
         const float a=0.17883277f,b=0.28466892f,c=0.55991073f;
         float e = (x <= 0.5f) ? (x*x/3.0f) : ((expf((x-c)/a)+b)/12.0f);
         return e * 3.774f;   // 75% HLG ref white -> ~1.0
+    } else if (cam == 11) { // Blackmagic Film Gen 5 (BMD Gen 5 Color Science white paper)
+        const float A=0.08692876f,B=0.00549407f,C=0.53001334f,D=8.28360593f,E=0.09246575f,LC=0.13388378f;
+        return (x > LC) ? (expf((x - C)/A) - B) : ((x - E)/D);
     } else { // Rec.2100 PQ / ST.2084 (inverse EOTF, reference-white normalised)
         const float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f;
         float p = safe_pow(x, 1.0f/m2);
@@ -88,6 +91,7 @@ static inline void to_XYZ(int cam, const float v[3], float o[3])
     else if (cam == 3) { float t[9]={0.7048583f,0.1297602f,0.1158373f, 0.2545241f,0.7814843f,-0.0360084f, 0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if (cam == 5) { float t[9]={0.7352750f,0.0686090f,0.1465710f, 0.2866940f,0.8429790f,-0.1296730f, -0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else if (cam == 8) { float t[9]={0.6796440f,0.1522110f,0.1186000f, 0.2606860f,0.7748940f,-0.0355800f, -0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Panasonic V-Gamut
+    else if (cam == 11) { float t[9]={0.6065384f,0.2204127f,0.1235048f, 0.2679929f,0.8327485f,-0.1007414f, -0.0294426f,-0.0866124f,1.2048076f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Blackmagic Wide Gamut Gen 4/5
     else { float t[9]={0.6369580f,0.1446169f,0.1688810f, 0.2627002f,0.6779981f,0.0593017f, 0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; } // 4,6,7 -> Rec2020 stand-in
     mul33(m, v, o);
 }

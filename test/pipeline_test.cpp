@@ -55,6 +55,20 @@ int main() {
         check(ok, "HLG/PQ decode finite and monotonic");
     }
 
+    // 2b. Blackmagic Gen 5 Film decode: published mid-gray code, continuous at the
+    //     toe junction, monotonic over the signal range
+    {
+        bool ok = close(pg::decode_log(11, 0.38355f), 0.18f, 1e-3f);   // 0.18 -> 0.38355 (white paper)
+        ok &= close(pg::decode_log(11, 0.13388378f), 0.005f, 1e-4f);   // linear/log junction
+        float prev = -1e9f;
+        for (float x = 0.f; x <= 1.0f; x += 0.02f) {
+            float y = pg::decode_log(11, x);
+            ok &= std::isfinite(y) && (y >= prev - 1e-5f);
+            prev = y;
+        }
+        check(ok, "Blackmagic Gen 5 Film decode (mid-gray, junction, monotonic)");
+    }
+
     // 3. Identity 3D LUT leaves pixels unchanged
     {
         const int N = 9;
@@ -83,7 +97,7 @@ int main() {
     {
         float P[12]; neutral(P);
         bool ok = true;
-        for (int cam = 0; cam <= 10; ++cam)
+        for (int cam = 0; cam <= 11; ++cam)
           for (int enc = 0; enc <= 4; ++enc)
             for (float x = 0.02f; x <= 0.98f; x += 0.12f) {
                 float or_,og,ob; pg::process(cam, enc, P, x, x*0.9f, x*1.1f, or_, og, ob);
