@@ -51,9 +51,10 @@ onto a node. The controls appear top-to-bottom in the order they're applied.
 
 **1 · Input Transform**
 - **Camera** — pick the source format. Decodes the log/gamut into the working space.
-  Supports Blackmagic (DWG/DI), **Blackmagic Gen 5 Film** (Pocket 4K/6K, URSA, Pyxis —
-  clips left at Blackmagic Design / Gen 5 Film), Sony S-Log3, ARRI LogC3/LogC4, Canon Log3,
-  RED Log3G10, DJI D-Log, Fuji F-Log2, Panasonic V-Log, and **Rec.2100 HLG / PQ** for HDR clips.
+  Supports **Blackmagic Gen 5 Film** (the default — Pocket 4K/6K, URSA, Pyxis clips left
+  at Blackmagic Design / Gen 5 Film), Blackmagic (DWG/DI), Sony S-Log3, ARRI LogC3/LogC4,
+  Canon Log3, RED Log3G10, DJI D-Log, Fuji F-Log2, Panasonic V-Log, and **Rec.2100 HLG / PQ**
+  for HDR clips.
 
 **2 · Balance** — white balance, in linear. *Open the Vectorscope while adjusting.*
 - **Offset Temp / Tint** — additive; shifts every tone's chroma **evenly**. Best for a

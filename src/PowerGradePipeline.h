@@ -28,43 +28,43 @@ static inline float clamp01(float x) { return x < 0.f ? 0.f : (x > 1.f ? 1.f : x
 // ---------- camera log -> scene-linear (mid-gray 0.18) ----------
 static inline float decode_log(int cam, float x)
 {
-    if (cam == 0) { // DaVinci Intermediate
+    if (cam == 0) { // Blackmagic Film Gen 5 (BMD Gen 5 Color Science white paper)
+        const float A=0.08692876f,B=0.00549407f,C=0.53001334f,D=8.28360593f,E=0.09246575f,LC=0.13388378f;
+        return (x > LC) ? (expf((x - C)/A) - B) : ((x - E)/D);
+    } else if (cam == 1) { // DaVinci Intermediate
         const float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f;
         return (x > LC) ? (exp2f(x/C - B) - A) : (x / M);
-    } else if (cam == 1) { // Sony S-Log3
+    } else if (cam == 2) { // Sony S-Log3
         return (x >= 171.2102946f/1023.0f)
             ? (safe_pow(10.0f,(x*1023.0f-420.0f)/261.5f)*0.19f - 0.01f)
             : ((x*1023.0f-95.0f)*0.01125000f/(171.2102946f-95.0f));
-    } else if (cam == 2) { // ARRI LogC3 (EI800)
+    } else if (cam == 3) { // ARRI LogC3 (EI800)
         const float a=5.555556f,b=0.052272f,c=0.247190f,d=0.385537f,e=5.367655f,f=0.092809f,cut=0.010591f;
         return (x > e*cut+f) ? ((safe_pow(10.0f,(x-d)/c)-b)/a) : ((x-f)/e);
-    } else if (cam == 3) { // ARRI LogC4
+    } else if (cam == 4) { // ARRI LogC4
         const float a=(exp2f(18.0f)-16.0f)/117.45f,b=(1023.0f-95.0f)/1023.0f,c=95.0f/1023.0f;
         const float s=(7.0f*logf(2.0f)*exp2f(7.0f-14.0f*c/b))/(a*b);
         const float t=(exp2f(14.0f*(-c/b)+6.0f)-64.0f)/a;
         float p=(x-c)/b; float hi=(exp2f(14.0f*p+6.0f)-64.0f)/a;
         return (hi > t) ? hi : (x*s);
-    } else if (cam == 4) { // Canon Log 3
+    } else if (cam == 5) { // Canon Log 3
         float v=x;
         if (v < 0.09755646f) return -(safe_pow(10.0f,(0.07623209f - v)/0.42889912f)-1.0f)/14.98325f;
         if (v <= 0.15277891f) return (v - 0.12512219f)/1.9754798f;
         return (safe_pow(10.0f,(v - 0.19022340f)/0.42889912f)-1.0f)/14.98325f;
-    } else if (cam == 5) { // RED Log3G10
+    } else if (cam == 6) { // RED Log3G10
         return (safe_pow(10.0f, x/0.224282f) - 1.0f)/155.975327f - 0.01f;
-    } else if (cam == 6) { // DJI D-Log
+    } else if (cam == 7) { // DJI D-Log
         return (x <= 0.14f) ? ((x-0.0929f)/6.025f) : (safe_pow(10.0f,(x-0.5595f)/0.9892f) - 0.0108f);
-    } else if (cam == 7) { // Fuji F-Log2
+    } else if (cam == 8) { // Fuji F-Log2
         const float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x >= cut) ? ((safe_pow(10.0f,(x-d)/c)-b)/a) : ((x-f)/e);
-    } else if (cam == 8) { // Panasonic V-Log
+    } else if (cam == 9) { // Panasonic V-Log
         return (x < 0.181f) ? ((x - 0.125f)/5.6f) : (safe_pow(10.0f,(x - 0.598206f)/0.241514f) - 0.00873f);
-    } else if (cam == 9) { // Rec.2100 HLG (inverse OETF, reference-white normalised)
+    } else if (cam == 10) { // Rec.2100 HLG (inverse OETF, reference-white normalised)
         const float a=0.17883277f,b=0.28466892f,c=0.55991073f;
         float e = (x <= 0.5f) ? (x*x/3.0f) : ((expf((x-c)/a)+b)/12.0f);
         return e * 3.774f;   // 75% HLG ref white -> ~1.0
-    } else if (cam == 11) { // Blackmagic Film Gen 5 (BMD Gen 5 Color Science white paper)
-        const float A=0.08692876f,B=0.00549407f,C=0.53001334f,D=8.28360593f,E=0.09246575f,LC=0.13388378f;
-        return (x > LC) ? (expf((x - C)/A) - B) : ((x - E)/D);
     } else { // Rec.2100 PQ / ST.2084 (inverse EOTF, reference-white normalised)
         const float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f;
         float p = safe_pow(x, 1.0f/m2);
@@ -85,14 +85,14 @@ static inline void mul33(const float m[9], const float v[3], float o[3])
 static inline void to_XYZ(int cam, const float v[3], float o[3])
 {
     float m[9];
-    if (cam == 0) { float t[9]={0.7006223f,0.1487748f,0.1010587f, 0.2740150f,0.8736457f,-0.1476607f, -0.0989629f,-0.1378905f,1.3259942f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if (cam == 1) { float t[9]={0.5990839f,0.2489255f,0.1024464f, 0.2150758f,0.8850685f,-0.1001443f, -0.0320658f,-0.0276902f,1.1487819f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if (cam == 2) { float t[9]={0.6380076f,0.2147014f,0.0977226f, 0.2919283f,0.8238731f,-0.1158014f, 0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if (cam == 3) { float t[9]={0.7048583f,0.1297602f,0.1158373f, 0.2545241f,0.7814843f,-0.0360084f, 0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if (cam == 5) { float t[9]={0.7352750f,0.0686090f,0.1465710f, 0.2866940f,0.8429790f,-0.1296730f, -0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if (cam == 8) { float t[9]={0.6796440f,0.1522110f,0.1186000f, 0.2606860f,0.7748940f,-0.0355800f, -0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Panasonic V-Gamut
-    else if (cam == 11) { float t[9]={0.6065384f,0.2204127f,0.1235048f, 0.2679929f,0.8327485f,-0.1007414f, -0.0294426f,-0.0866124f,1.2048076f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Blackmagic Wide Gamut Gen 4/5
-    else { float t[9]={0.6369580f,0.1446169f,0.1688810f, 0.2627002f,0.6779981f,0.0593017f, 0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; } // 4,6,7 -> Rec2020 stand-in
+    if (cam == 0) { float t[9]={0.6065384f,0.2204127f,0.1235048f, 0.2679929f,0.8327485f,-0.1007414f, -0.0294426f,-0.0866124f,1.2048076f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Blackmagic Wide Gamut Gen 4/5
+    else if (cam == 1) { float t[9]={0.7006223f,0.1487748f,0.1010587f, 0.2740150f,0.8736457f,-0.1476607f, -0.0989629f,-0.1378905f,1.3259942f}; for(int i=0;i<9;i++)m[i]=t[i]; } // DaVinci Wide Gamut
+    else if (cam == 2) { float t[9]={0.5990839f,0.2489255f,0.1024464f, 0.2150758f,0.8850685f,-0.1001443f, -0.0320658f,-0.0276902f,1.1487819f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if (cam == 3) { float t[9]={0.6380076f,0.2147014f,0.0977226f, 0.2919283f,0.8238731f,-0.1158014f, 0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if (cam == 4) { float t[9]={0.7048583f,0.1297602f,0.1158373f, 0.2545241f,0.7814843f,-0.0360084f, 0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if (cam == 6) { float t[9]={0.7352750f,0.0686090f,0.1465710f, 0.2866940f,0.8429790f,-0.1296730f, -0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if (cam == 9) { float t[9]={0.6796440f,0.1522110f,0.1186000f, 0.2606860f,0.7748940f,-0.0355800f, -0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Panasonic V-Gamut
+    else { float t[9]={0.6369580f,0.1446169f,0.1688810f, 0.2627002f,0.6779981f,0.0593017f, 0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; } // 5,7,8 -> Rec2020 stand-in
     mul33(m, v, o);
 }
 

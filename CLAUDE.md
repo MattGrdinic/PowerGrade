@@ -57,13 +57,14 @@ Per pixel, in `pg::process()`:
 rawTemp}` (postExp/postCon applied by the caller in the trim step, not inside `process()`;
 rawTemp defaults to 6500 = neutral); `camera` + `outEncode` passed separately as ints.
 
-Cameras (index): 0 BMD DWG/DI · 1 Sony S-Log3 · 2 ARRI LogC3 · 3 LogC4 · 4 Canon Log3 ·
-5 RED Log3G10 · 6 DJI D-Log · 7 Fuji F-Log2 · 8 Panasonic V-Log · 9 Rec.2100 HLG ·
-10 Rec.2100 PQ · 11 Blackmagic Gen 5 Film (Gen 5 Film log + BMD Wide Gamut Gen 4/5, from
-the Gen 5 Color Science white paper — this is what Pocket/URSA/Pyxis clips are in a YRGB
-project; camera 0 DWG/DI is NOT correct for them). Encodes: 0 Rec.709 (Scene) ·
-1 Rec.709 (Gamma 2.4) — **the param default** · 2 Cineon Log ·
-3 DaVinci Intermediate · 4 Linear. **709 primaries for enc ≤ 2** (Scene/2.4/Cineon); DI &
+Cameras (index): 0 Blackmagic Gen 5 Film — **the param default** (Gen 5 Film log + BMD
+Wide Gamut Gen 4/5, from the Gen 5 Color Science white paper; this is what Pocket/URSA/
+Pyxis clips are in a YRGB project — DWG/DI is NOT correct for them) · 1 BMD DWG/DI ·
+2 Sony S-Log3 · 3 ARRI LogC3 · 4 LogC4 · 5 Canon Log3 · 6 RED Log3G10 · 7 DJI D-Log ·
+8 Fuji F-Log2 · 9 Panasonic V-Log · 10 Rec.2100 HLG · 11 Rec.2100 PQ. (Indices were
+renumbered when Gen 5 moved to slot 0 — pre-renumber saved grades will show the wrong
+camera.) Encodes: 0 Rec.709 (Scene) · 1 Rec.709 (Gamma 2.4) — **the param default** ·
+2 Cineon Log · 3 DaVinci Intermediate · 4 Linear. **709 primaries for enc ≤ 2** (Scene/2.4/Cineon); DI &
 Linear keep DWG primaries. Film Look LUT auto-sets enc=2 (Cineon); Custom Look sets enc=0.
 
 ## Build / test / install (macOS, the dev machine)
@@ -106,6 +107,7 @@ Branch per change → push → user opens PR and merges on GitHub (they do the m
 ## Likely next tasks
 Cut `v0.1.0`; validate OpenCL/CUDA on real HW; per-camera gamut validation; HDR tone-map
 (highlight roll-off). (Done: Rec.709 Gamma 2.4 output with grade-space-following LGG,
-branch `feature/rec709-gamma24` — validated in Resolve. In progress: camera 11 Blackmagic
-Gen 5 Film + default encode → Gamma 2.4, branch `feature/gen5-camera-g24-default` —
-needs visual verify on Pyxis footage vs a CST node.)
+branch `feature/rec709-gamma24` — validated in Resolve. In progress: camera 0 Blackmagic
+Gen 5 Film — now the default camera, list reordered so both Blackmagic entries lead —
++ default encode → Gamma 2.4, branch `feature/gen5-camera-g24-default` — needs visual
+verify on Pyxis footage vs a CST node.)

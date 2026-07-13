@@ -18,34 +18,34 @@
 const char* KernelSource = "\n" \
 "inline float pg_pow(float b, float e){ return pow(fmax(b,0.0f), e); }                                          \n" \
 "inline float pg_decode(int cam, float x){                                                                      \n" \
-"  if(cam==0){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f;                              \n" \
+"  if(cam==0){ float A=0.08692876f,B=0.00549407f,C=0.53001334f,D=8.28360593f,E=0.09246575f,LC=0.13388378f;      \n" \
+"    return (x>LC)?(exp((x-C)/A)-B):((x-E)/D); }                                                                 \n" \
+"  else if(cam==1){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f;                              \n" \
 "    return (x>LC)?(exp2(x/C-B)-A):(x/M); }                                                                      \n" \
-"  else if(cam==1){ return (x>=171.2102946f/1023.0f)?(pg_pow(10.0f,(x*1023.0f-420.0f)/261.5f)*0.19f-0.01f):((x*1023.0f-95.0f)*0.01125f/(171.2102946f-95.0f)); } \n" \
-"  else if(cam==2){ float a=5.555556f,b=0.052272f,c=0.247190f,d=0.385537f,e=5.367655f,f=0.092809f,cut=0.010591f;\n" \
+"  else if(cam==2){ return (x>=171.2102946f/1023.0f)?(pg_pow(10.0f,(x*1023.0f-420.0f)/261.5f)*0.19f-0.01f):((x*1023.0f-95.0f)*0.01125f/(171.2102946f-95.0f)); } \n" \
+"  else if(cam==3){ float a=5.555556f,b=0.052272f,c=0.247190f,d=0.385537f,e=5.367655f,f=0.092809f,cut=0.010591f;\n" \
 "    return (x>e*cut+f)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }                                               \n" \
-"  else if(cam==3){ float a=(exp2(18.0f)-16.0f)/117.45f,b=(1023.0f-95.0f)/1023.0f,c=95.0f/1023.0f;              \n" \
+"  else if(cam==4){ float a=(exp2(18.0f)-16.0f)/117.45f,b=(1023.0f-95.0f)/1023.0f,c=95.0f/1023.0f;              \n" \
 "    float s=(7.0f*log(2.0f)*exp2(7.0f-14.0f*c/b))/(a*b); float t=(exp2(14.0f*(-c/b)+6.0f)-64.0f)/a;            \n" \
 "    float p=(x-c)/b; float hi=(exp2(14.0f*p+6.0f)-64.0f)/a; return (hi>t)?hi:(x*s); }                          \n" \
-"  else if(cam==4){ float v=x; if(v<0.09755646f) return -(pg_pow(10.0f,(0.07623209f-v)/0.42889912f)-1.0f)/14.98325f; \n" \
+"  else if(cam==5){ float v=x; if(v<0.09755646f) return -(pg_pow(10.0f,(0.07623209f-v)/0.42889912f)-1.0f)/14.98325f; \n" \
 "    if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; } \n" \
-"  else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }                                \n" \
-"  else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }       \n" \
-"  else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f; \n" \
+"  else if(cam==6){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }                                \n" \
+"  else if(cam==7){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }       \n" \
+"  else if(cam==8){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f; \n" \
 "    return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }                                                  \n" \
-"  else if(cam==8){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); }      \n" \
-"  else if(cam==9){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((exp((x-c)/a)+b)/12.0f); return e*3.774f; } \n" \
-"  else if(cam==11){ float A=0.08692876f,B=0.00549407f,C=0.53001334f,D=8.28360593f,E=0.09246575f,LC=0.13388378f; \n" \
-"    return (x>LC)?(exp((x-C)/A)-B):((x-E)/D); }                                                                 \n" \
+"  else if(cam==9){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); }      \n" \
+"  else if(cam==10){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((exp((x-c)/a)+b)/12.0f); return e*3.774f; } \n" \
 "  else { float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f; float p=pg_pow(x,1.0f/m2); float num=fmax(p-c1,0.0f); float e=pg_pow(num/(c2-c3*p),1.0f/m1); return e*49.26f; } } \n" \
 "inline float3 pg_mv(float3 r0,float3 r1,float3 r2,float3 v){ return (float3)(dot(r0,v),dot(r1,v),dot(r2,v)); }  \n" \
 "inline float3 pg_toXYZ(int cam, float3 v){                                                                     \n" \
-"  if(cam==0) return pg_mv((float3)(0.7006223f,0.1487748f,0.1010587f),(float3)(0.2740150f,0.8736457f,-0.1476607f),(float3)(-0.0989629f,-0.1378905f,1.3259942f),v); \n" \
-"  else if(cam==1) return pg_mv((float3)(0.5990839f,0.2489255f,0.1024464f),(float3)(0.2150758f,0.8850685f,-0.1001443f),(float3)(-0.0320658f,-0.0276902f,1.1487819f),v); \n" \
-"  else if(cam==2) return pg_mv((float3)(0.6380076f,0.2147014f,0.0977226f),(float3)(0.2919283f,0.8238731f,-0.1158014f),(float3)(0.0027932f,-0.0670795f,1.1533751f),v); \n" \
-"  else if(cam==3) return pg_mv((float3)(0.7048583f,0.1297602f,0.1158373f),(float3)(0.2545241f,0.7814843f,-0.0360084f),(float3)(0.0f,0.0f,1.0890577f),v); \n" \
-"  else if(cam==5) return pg_mv((float3)(0.7352750f,0.0686090f,0.1465710f),(float3)(0.2866940f,0.8429790f,-0.1296730f),(float3)(-0.0796810f,-0.3473430f,1.5164950f),v); \n" \
-"  else if(cam==8) return pg_mv((float3)(0.6796440f,0.1522110f,0.1186000f),(float3)(0.2606860f,0.7748940f,-0.0355800f),(float3)(-0.0093100f,-0.0046120f,1.1029800f),v); \n" \
-"  else if(cam==11) return pg_mv((float3)(0.6065384f,0.2204127f,0.1235048f),(float3)(0.2679929f,0.8327485f,-0.1007414f),(float3)(-0.0294426f,-0.0866124f,1.2048076f),v); \n" \
+"  if(cam==0) return pg_mv((float3)(0.6065384f,0.2204127f,0.1235048f),(float3)(0.2679929f,0.8327485f,-0.1007414f),(float3)(-0.0294426f,-0.0866124f,1.2048076f),v); \n" \
+"  else if(cam==1) return pg_mv((float3)(0.7006223f,0.1487748f,0.1010587f),(float3)(0.2740150f,0.8736457f,-0.1476607f),(float3)(-0.0989629f,-0.1378905f,1.3259942f),v); \n" \
+"  else if(cam==2) return pg_mv((float3)(0.5990839f,0.2489255f,0.1024464f),(float3)(0.2150758f,0.8850685f,-0.1001443f),(float3)(-0.0320658f,-0.0276902f,1.1487819f),v); \n" \
+"  else if(cam==3) return pg_mv((float3)(0.6380076f,0.2147014f,0.0977226f),(float3)(0.2919283f,0.8238731f,-0.1158014f),(float3)(0.0027932f,-0.0670795f,1.1533751f),v); \n" \
+"  else if(cam==4) return pg_mv((float3)(0.7048583f,0.1297602f,0.1158373f),(float3)(0.2545241f,0.7814843f,-0.0360084f),(float3)(0.0f,0.0f,1.0890577f),v); \n" \
+"  else if(cam==6) return pg_mv((float3)(0.7352750f,0.0686090f,0.1465710f),(float3)(0.2866940f,0.8429790f,-0.1296730f),(float3)(-0.0796810f,-0.3473430f,1.5164950f),v); \n" \
+"  else if(cam==9) return pg_mv((float3)(0.6796440f,0.1522110f,0.1186000f),(float3)(0.2606860f,0.7748940f,-0.0355800f),(float3)(-0.0093100f,-0.0046120f,1.1029800f),v); \n" \
 "  else return pg_mv((float3)(0.6369580f,0.1446169f,0.1688810f),(float3)(0.2627002f,0.6779981f,0.0593017f),(float3)(0.0f,0.0280727f,1.0609851f),v); }  \n" \
 "inline float3 pg_XYZtoDWG(float3 v){ return pg_mv((float3)(1.5166283f,-0.2814601f,-0.1469306f),(float3)(-0.4647205f,1.2513509f,0.1747665f),(float3)(0.0648641f,0.1091221f,0.7613593f),v); } \n" \
 "inline float3 pg_DWGtoXYZ(float3 v){ return pg_mv((float3)(0.7006223f,0.1487748f,0.1010587f),(float3)(0.2740150f,0.8736457f,-0.1476607f),(float3)(-0.0989629f,-0.1378905f,1.3259942f),v); } \n" \

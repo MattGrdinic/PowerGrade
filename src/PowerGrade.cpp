@@ -459,7 +459,8 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gInput->setLabels("1  Input Transform", "1  Input Transform", "1  Input Transform");
     ChoiceParamDescriptor* cam = p_Desc.defineChoiceParam("camera");
     cam->setLabels("Camera", "Camera", "Camera");
-    cam->setHint("Source camera log/gamut. Decodes to DaVinci Wide Gamut linear working space (matches the CST node).");
+    cam->setHint("Source camera log/gamut. Decodes to DaVinci Wide Gamut linear working space (matches the CST node). Blackmagic Gen 5 Film (the default) is what Pocket/URSA/Pyxis clips are when left at camera defaults; Blackmagic (DWG/DI) is for clips already in DaVinci Wide Gamut / Intermediate.");
+    cam->appendOption("Blackmagic Gen 5 Film");
     cam->appendOption("Blackmagic (DWG/DI)");
     cam->appendOption("Sony S-Log3");
     cam->appendOption("ARRI LogC3");
@@ -471,7 +472,6 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     cam->appendOption("Panasonic V-Log");
     cam->appendOption("Rec.2100 HLG (HDR)");
     cam->appendOption("Rec.2100 PQ / ST.2084 (HDR)");
-    cam->appendOption("Blackmagic Gen 5 Film");
     cam->setDefault(0);
     cam->setParent(*gInput);
     page->addChild(*cam);

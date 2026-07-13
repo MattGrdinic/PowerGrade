@@ -5,24 +5,24 @@
 __device__ float pg_pow(float b, float e){ return powf(fmaxf(b,0.0f), e); }
 
 __device__ float pg_decode(int cam, float x){
-    if(cam==0){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f;
+    if(cam==0){ float A=0.08692876f,B=0.00549407f,C=0.53001334f,D=8.28360593f,E=0.09246575f,LC=0.13388378f;
+        return (x>LC)?(expf((x-C)/A)-B):((x-E)/D); } // Blackmagic Film Gen 5
+    else if(cam==1){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f;
         return (x>LC)?(exp2f(x/C-B)-A):(x/M); }
-    else if(cam==1){ return (x>=171.2102946f/1023.0f)?(pg_pow(10.0f,(x*1023.0f-420.0f)/261.5f)*0.19f-0.01f):((x*1023.0f-95.0f)*0.01125f/(171.2102946f-95.0f)); }
-    else if(cam==2){ float a=5.555556f,b=0.052272f,c=0.247190f,d=0.385537f,e=5.367655f,f=0.092809f,cut=0.010591f;
+    else if(cam==2){ return (x>=171.2102946f/1023.0f)?(pg_pow(10.0f,(x*1023.0f-420.0f)/261.5f)*0.19f-0.01f):((x*1023.0f-95.0f)*0.01125f/(171.2102946f-95.0f)); }
+    else if(cam==3){ float a=5.555556f,b=0.052272f,c=0.247190f,d=0.385537f,e=5.367655f,f=0.092809f,cut=0.010591f;
         return (x>e*cut+f)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
-    else if(cam==3){ float a=(exp2f(18.0f)-16.0f)/117.45f,b=(1023.0f-95.0f)/1023.0f,c=95.0f/1023.0f;
+    else if(cam==4){ float a=(exp2f(18.0f)-16.0f)/117.45f,b=(1023.0f-95.0f)/1023.0f,c=95.0f/1023.0f;
         float s=(7.0f*logf(2.0f)*exp2f(7.0f-14.0f*c/b))/(a*b); float t=(exp2f(14.0f*(-c/b)+6.0f)-64.0f)/a;
         float p=(x-c)/b; float hi=(exp2f(14.0f*p+6.0f)-64.0f)/a; return (hi>t)?hi:(x*s); }
-    else if(cam==4){ float v=x; if(v<0.09755646f) return -(pg_pow(10.0f,(0.07623209f-v)/0.42889912f)-1.0f)/14.98325f;
+    else if(cam==5){ float v=x; if(v<0.09755646f) return -(pg_pow(10.0f,(0.07623209f-v)/0.42889912f)-1.0f)/14.98325f;
         if(v<=0.15277891f) return (v-0.12512219f)/1.9754798f; return (pg_pow(10.0f,(v-0.19022340f)/0.42889912f)-1.0f)/14.98325f; }
-    else if(cam==5){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }
-    else if(cam==6){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
-    else if(cam==7){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
+    else if(cam==6){ return (pg_pow(10.0f,x/0.224282f)-1.0f)/155.975327f-0.01f; }
+    else if(cam==7){ return (x<=0.14f)?((x-0.0929f)/6.025f):(pg_pow(10.0f,(x-0.5595f)/0.9892f)-0.0108f); }
+    else if(cam==8){ float a=5.555556f,b=0.064829f,c=0.245281f,d=0.384316f,e=8.799461f,f=0.092864f,cut=0.100686685f;
         return (x>=cut)?((pg_pow(10.0f,(x-d)/c)-b)/a):((x-f)/e); }
-    else if(cam==8){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
-    else if(cam==9){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((expf((x-c)/a)+b)/12.0f); return e*3.774f; } // Rec.2100 HLG
-    else if(cam==11){ float A=0.08692876f,B=0.00549407f,C=0.53001334f,D=8.28360593f,E=0.09246575f,LC=0.13388378f;
-        return (x>LC)?(expf((x-C)/A)-B):((x-E)/D); } // Blackmagic Film Gen 5
+    else if(cam==9){ return (x<0.181f)?((x-0.125f)/5.6f):(pg_pow(10.0f,(x-0.598206f)/0.241514f)-0.00873f); } // Panasonic V-Log
+    else if(cam==10){ float a=0.17883277f,b=0.28466892f,c=0.55991073f; float e=(x<=0.5f)?(x*x/3.0f):((expf((x-c)/a)+b)/12.0f); return e*3.774f; } // Rec.2100 HLG
     else { float m1=0.1593017578125f,m2=78.84375f,c1=0.8359375f,c2=18.8515625f,c3=18.6875f; float p=pg_pow(x,1.0f/m2); float num=fmaxf(p-c1,0.0f); float e=pg_pow(num/(c2-c3*p),1.0f/m1); return e*49.26f; } // Rec.2100 PQ
 }
 
@@ -31,13 +31,13 @@ __device__ void mul33(const float m[9], const float v[3], float o[3]){
 }
 __device__ void pg_toXYZ(int cam, const float v[3], float o[3]){
     float m[9];
-    if(cam==0){ float t[9]={0.7006223f,0.1487748f,0.1010587f,0.2740150f,0.8736457f,-0.1476607f,-0.0989629f,-0.1378905f,1.3259942f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if(cam==1){ float t[9]={0.5990839f,0.2489255f,0.1024464f,0.2150758f,0.8850685f,-0.1001443f,-0.0320658f,-0.0276902f,1.1487819f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if(cam==2){ float t[9]={0.6380076f,0.2147014f,0.0977226f,0.2919283f,0.8238731f,-0.1158014f,0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if(cam==3){ float t[9]={0.7048583f,0.1297602f,0.1158373f,0.2545241f,0.7814843f,-0.0360084f,0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if(cam==5){ float t[9]={0.7352750f,0.0686090f,0.1465710f,0.2866940f,0.8429790f,-0.1296730f,-0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if(cam==8){ float t[9]={0.6796440f,0.1522110f,0.1186000f,0.2606860f,0.7748940f,-0.0355800f,-0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; }
-    else if(cam==11){ float t[9]={0.6065384f,0.2204127f,0.1235048f,0.2679929f,0.8327485f,-0.1007414f,-0.0294426f,-0.0866124f,1.2048076f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Blackmagic Wide Gamut Gen 4/5
+    if(cam==0){ float t[9]={0.6065384f,0.2204127f,0.1235048f,0.2679929f,0.8327485f,-0.1007414f,-0.0294426f,-0.0866124f,1.2048076f}; for(int i=0;i<9;i++)m[i]=t[i]; } // Blackmagic Wide Gamut Gen 4/5
+    else if(cam==1){ float t[9]={0.7006223f,0.1487748f,0.1010587f,0.2740150f,0.8736457f,-0.1476607f,-0.0989629f,-0.1378905f,1.3259942f}; for(int i=0;i<9;i++)m[i]=t[i]; } // DaVinci Wide Gamut
+    else if(cam==2){ float t[9]={0.5990839f,0.2489255f,0.1024464f,0.2150758f,0.8850685f,-0.1001443f,-0.0320658f,-0.0276902f,1.1487819f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==3){ float t[9]={0.6380076f,0.2147014f,0.0977226f,0.2919283f,0.8238731f,-0.1158014f,0.0027932f,-0.0670795f,1.1533751f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==4){ float t[9]={0.7048583f,0.1297602f,0.1158373f,0.2545241f,0.7814843f,-0.0360084f,0.0f,0.0f,1.0890577f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==6){ float t[9]={0.7352750f,0.0686090f,0.1465710f,0.2866940f,0.8429790f,-0.1296730f,-0.0796810f,-0.3473430f,1.5164950f}; for(int i=0;i<9;i++)m[i]=t[i]; }
+    else if(cam==9){ float t[9]={0.6796440f,0.1522110f,0.1186000f,0.2606860f,0.7748940f,-0.0355800f,-0.0093100f,-0.0046120f,1.1029800f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     else { float t[9]={0.6369580f,0.1446169f,0.1688810f,0.2627002f,0.6779981f,0.0593017f,0.0f,0.0280727f,1.0609851f}; for(int i=0;i<9;i++)m[i]=t[i]; }
     mul33(m,v,o);
 }
