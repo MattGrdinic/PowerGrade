@@ -26,9 +26,18 @@ int main() {
         bool ok = true;
         for (float v = 0.f; v <= 1.5f; v += 0.05f) {
             ok &= close(pg::r709_dec(pg::r709_enc(v)), v, 2e-3f);
+            ok &= close(pg::r709_24_dec(pg::r709_24_enc(v)), v, 2e-3f);
             ok &= close(pg::di_decode(pg::di_encode(v)),  v, 2e-3f);
         }
-        check(ok, "r709 and DI encode/decode round-trip");
+        check(ok, "r709 scene / r709 g2.4 / DI encode/decode round-trip");
+    }
+
+    // 1b. Rec.709 Gamma 2.4 (encode index 1) is a pure power curve, no linear toe
+    {
+        bool ok = close(pg::encode(1, 0.5f), std::pow(0.5f, 1.0f/2.4f), 1e-4f)
+               && close(pg::encode(1, 1.0f), 1.0f, 1e-4f)
+               && close(pg::encode(1, 0.0f), 0.0f, 1e-4f);
+        check(ok, "Rec.709 Gamma 2.4 encode is pure power");
     }
 
     // 2. HDR decodes finite and monotonic over the signal range
@@ -75,7 +84,7 @@ int main() {
         float P[12]; neutral(P);
         bool ok = true;
         for (int cam = 0; cam <= 10; ++cam)
-          for (int enc = 0; enc <= 3; ++enc)
+          for (int enc = 0; enc <= 4; ++enc)
             for (float x = 0.02f; x <= 0.98f; x += 0.12f) {
                 float or_,og,ob; pg::process(cam, enc, P, x, x*0.9f, x*1.1f, or_, og, ob);
                 ok &= finite3(or_,og,ob);
@@ -106,8 +115,8 @@ int main() {
         float P0[12]; neutral(P0);
         float P1[12]; neutral(P1); P1[3] = -0.25f;
         float a0,b0,c0, a1,b1,c1;
-        pg::process(0, 3, P0, 1.0f, 1.0f, 1.0f, a0, b0, c0);   // enc=3 linear so we compare raw
-        pg::process(0, 3, P1, 1.0f, 1.0f, 1.0f, a1, b1, c1);
+        pg::process(0, 4, P0, 1.0f, 1.0f, 1.0f, a0, b0, c0);   // enc=4 linear so we compare raw
+        pg::process(0, 4, P1, 1.0f, 1.0f, 1.0f, a1, b1, c1);
         check(close(a0,a1,1e-2f), "lift leaves superwhites untouched");
     }
 
@@ -116,8 +125,8 @@ int main() {
         float P0[12]; neutral(P0);
         float P1[12]; neutral(P1); P1[10] = 1.0f;    // +1 stop
         float a0,b0,c0, a1,b1,c1;
-        pg::process(0, 3, P0, 0.5f, 0.5f, 0.5f, a0, b0, c0);
-        pg::process(0, 3, P1, 0.5f, 0.5f, 0.5f, a1, b1, c1);
+        pg::process(0, 4, P0, 0.5f, 0.5f, 0.5f, a0, b0, c0);   // enc=4 = linear output
+        pg::process(0, 4, P1, 0.5f, 0.5f, 0.5f, a1, b1, c1);
         check(close(a1,2.0f*a0,2e-2f)&&close(b1,2.0f*b0,2e-2f)&&close(c1,2.0f*c0,2e-2f),
               "RAW exposure +1 stop doubles linear output");
     }

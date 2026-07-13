@@ -36,7 +36,7 @@ your clips. In **Project Settings → Color Management**:
 | Setting | Value |
 |---|---|
 | Color Science | **DaVinci YRGB** (not Color Managed / not ACES) |
-| Timeline Color Space | **Rec.709 (Scene)** |
+| Timeline Color Space | **Rec.709 (Scene)** — or **Rec.709 Gamma 2.4** for broadcast; set Output Encode to match |
 | Output Color Space | Same as Timeline |
 
 Leave your clips at their **camera raw / log defaults** — don't put a CST or input LUT
@@ -70,7 +70,9 @@ onto a node. The controls appear top-to-bottom in the order they're applied.
 
 **5 · Output**
 - **Output Encode** — match your Timeline Color Space. With the setup above, leave it on
-  **Rec.709 (Scene)**. (Also: Cineon Log, DaVinci Intermediate, Linear.)
+  **Rec.709 (Scene)**; use **Rec.709 (Gamma 2.4)** for a display-referred / broadcast
+  timeline. (Also: Cineon Log, DaVinci Intermediate, Linear.) The Lift/Gamma/Gain wheels
+  grade in whichever Rec.709 curve you pick, so they read linearly on that timeline's scope.
 
 **6 · Look / Film LUT** — a LUT applied inside the node. The two paths are mutually
 exclusive (they use different transforms):
@@ -133,8 +135,8 @@ deliberate** — this is where most of the correctness lives:
 | 3 | **Balance** | linear (DWG) | gain = multiply, offset = additive; even vs. highlight-weighted |
 | 4 | **Density** | **DI-log** HSV | saturating in log enriches highlights instead of blowing them out |
 | 5 | gamut out | DWG → Rec.709 linear (or keep DWG for DI/Linear) | output primaries |
-| 6 | **Lift/Gamma/Gain** | **Rec.709 scene-OETF** (linear toe) | matches Resolve's timeline wheels; blacks stay pinned; lift clamped at white so superwhites aren't amplified |
-| 7 | output encode | Rec.709 scene / Cineon / DI / linear | `encode()` |
+| 6 | **Lift/Gamma/Gain** | **Rec.709 display curve** — Scene OETF *or* pure 2.4, **follows the output encode** | matches Resolve's timeline wheels; blacks stay pinned; lift clamped at white so superwhites aren't amplified |
+| 7 | output encode | Rec.709 Scene / Rec.709 Gamma 2.4 / Cineon / DI / linear | `encode()` |
 | 8 | **LUT + mix** | output space | trilinear 3D-LUT sample, then lerp by mix (done in the processor / kernels) |
 | 9 | **Trim** | output (display) space | post-LUT exposure (stops) + contrast about 0.5 |
 
