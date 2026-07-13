@@ -36,7 +36,7 @@ your clips. In **Project Settings → Color Management**:
 | Setting | Value |
 |---|---|
 | Color Science | **DaVinci YRGB** (not Color Managed / not ACES) |
-| Timeline Color Space | **Rec.709 (Scene)** — or **Rec.709 Gamma 2.4** for broadcast; set Output Encode to match |
+| Timeline Color Space | **Rec.709 Gamma 2.4** (matches the plugin's default Output Encode) — or **Rec.709 (Scene)** for a scene-referred timeline; set Output Encode to match |
 | Output Color Space | Same as Timeline |
 
 Leave your clips at their **camera raw / log defaults** — don't put a CST or input LUT
@@ -51,8 +51,10 @@ onto a node. The controls appear top-to-bottom in the order they're applied.
 
 **1 · Input Transform**
 - **Camera** — pick the source format. Decodes the log/gamut into the working space.
-  Supports Blackmagic (DWG/DI), Sony S-Log3, ARRI LogC3/LogC4, Canon Log3, RED Log3G10,
-  DJI D-Log, Fuji F-Log2, Panasonic V-Log, and **Rec.2100 HLG / PQ** for HDR clips.
+  Supports **Blackmagic Gen 5 Film** (the default — Pocket 4K/6K, URSA, Pyxis clips left
+  at Blackmagic Design / Gen 5 Film), Blackmagic (DWG/DI), Sony S-Log3, ARRI LogC3/LogC4,
+  Canon Log3, RED Log3G10, DJI D-Log, Fuji F-Log2, Panasonic V-Log, and **Rec.2100 HLG / PQ**
+  for HDR clips.
 
 **2 · Balance** — white balance, in linear. *Open the Vectorscope while adjusting.*
 - **Offset Temp / Tint** — additive; shifts every tone's chroma **evenly**. Best for a
@@ -70,7 +72,7 @@ onto a node. The controls appear top-to-bottom in the order they're applied.
 
 **5 · Output**
 - **Output Encode** — match your Timeline Color Space. With the setup above, leave it on
-  **Rec.709 (Scene)**; use **Rec.709 (Gamma 2.4)** for a display-referred / broadcast
+  **Rec.709 (Gamma 2.4)** (the default); use **Rec.709 (Scene)** for a scene-referred
   timeline. (Also: Cineon Log, DaVinci Intermediate, Linear.) The Lift/Gamma/Gain wheels
   grade in whichever Rec.709 curve you pick, so they read linearly on that timeline's scope.
 

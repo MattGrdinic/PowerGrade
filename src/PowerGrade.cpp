@@ -459,7 +459,8 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gInput->setLabels("1  Input Transform", "1  Input Transform", "1  Input Transform");
     ChoiceParamDescriptor* cam = p_Desc.defineChoiceParam("camera");
     cam->setLabels("Camera", "Camera", "Camera");
-    cam->setHint("Source camera log/gamut. Decodes to DaVinci Wide Gamut linear working space (matches the CST node).");
+    cam->setHint("Source camera log/gamut. Decodes to DaVinci Wide Gamut linear working space (matches the CST node). Blackmagic Gen 5 Film (the default) is what Pocket/URSA/Pyxis clips are when left at camera defaults; Blackmagic (DWG/DI) is for clips already in DaVinci Wide Gamut / Intermediate.");
+    cam->appendOption("Blackmagic Gen 5 Film");
     cam->appendOption("Blackmagic (DWG/DI)");
     cam->appendOption("Sony S-Log3");
     cam->appendOption("ARRI LogC3");
@@ -516,13 +517,13 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gOut->setLabels("5  Output", "5  Output", "5  Output");
     ChoiceParamDescriptor* enc = p_Desc.defineChoiceParam("outEncode");
     enc->setLabels("Output Encode", "Output Encode", "Output Encode");
-    enc->setHint("Match your project's Timeline Color Space. Rec.709 (Scene) for a scene-referred timeline (recommended default), or Rec.709 (Gamma 2.4) for a display-referred / broadcast timeline. The Lift/Gamma/Gain wheels grade in whichever Rec.709 curve you pick, so they read linearly on that timeline's scope. Applies when LUT Mode = None; a LUT auto-sets it (Film Look -> Cineon, Custom Look -> Rec.709 Scene).");
+    enc->setHint("Match your project's Timeline Color Space. Rec.709 (Gamma 2.4) for a display-referred / broadcast timeline (the default), or Rec.709 (Scene) for a scene-referred timeline. The Lift/Gamma/Gain wheels grade in whichever Rec.709 curve you pick, so they read linearly on that timeline's scope. Applies when LUT Mode = None; a LUT auto-sets it (Film Look -> Cineon, Custom Look -> Rec.709 Scene).");
     enc->appendOption("Rec.709 (Scene)");
     enc->appendOption("Rec.709 (Gamma 2.4)");
     enc->appendOption("Cineon Log (feed film LUT)");
     enc->appendOption("DaVinci Intermediate");
     enc->appendOption("Linear");
-    enc->setDefault(0);
+    enc->setDefault(1);
     enc->setParent(*gOut);
     page->addChild(*enc);
 
@@ -604,11 +605,11 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     };
     helpLine("help0", "Requires", "Project > Color Management set to (not color managed):");
     helpLine("help1", "Color Science", "DaVinci YRGB");
-    helpLine("help2", "Timeline Color Space", "Rec.709 (Scene) recommended; Rec.709 Gamma 2.4 for broadcast/display-referred.");
+    helpLine("help2", "Timeline Color Space", "Rec.709 Gamma 2.4 (matches the default Output Encode); Rec.709 (Scene) for scene-referred.");
     helpLine("help3", "Output Color Space", "Same as Timeline");
     helpLine("help4", "Clips", "Leave at camera raw/log defaults - no input CST or LUT before this node.");
     helpLine("help5", "Camera control", "Set it to match the source footage; this node does the input transform.");
-    helpLine("help6", "Output Encode", "Match the Timeline Color Space above: Rec.709 (Scene) or Rec.709 (Gamma 2.4).");
+    helpLine("help6", "Output Encode", "Match the Timeline Color Space above: Rec.709 (Gamma 2.4) (default) or Rec.709 (Scene).");
     helpLine("help7", "Monitor", "Calibrate it and have Resolve show your delivery space; check the grade on a second screen.");
 }
 

@@ -43,7 +43,7 @@ int main() {
     // 2. HDR decodes finite and monotonic over the signal range
     {
         bool ok = true;
-        for (int cam = 9; cam <= 10; ++cam) {           // 9=HLG, 10=PQ
+        for (int cam = 10; cam <= 11; ++cam) {          // 10=HLG, 11=PQ
             float prev = -1e9f;
             for (float x = 0.f; x <= 1.0f; x += 0.05f) {
                 float y = pg::decode_log(cam, x);
@@ -53,6 +53,20 @@ int main() {
             }
         }
         check(ok, "HLG/PQ decode finite and monotonic");
+    }
+
+    // 2b. Blackmagic Gen 5 Film decode: published mid-gray code, continuous at the
+    //     toe junction, monotonic over the signal range
+    {
+        bool ok = close(pg::decode_log(0, 0.38355f), 0.18f, 1e-3f);    // 0.18 -> 0.38355 (white paper)
+        ok &= close(pg::decode_log(0, 0.13388378f), 0.005f, 1e-4f);    // linear/log junction
+        float prev = -1e9f;
+        for (float x = 0.f; x <= 1.0f; x += 0.02f) {
+            float y = pg::decode_log(0, x);
+            ok &= std::isfinite(y) && (y >= prev - 1e-5f);
+            prev = y;
+        }
+        check(ok, "Blackmagic Gen 5 Film decode (mid-gray, junction, monotonic)");
     }
 
     // 3. Identity 3D LUT leaves pixels unchanged
@@ -83,7 +97,7 @@ int main() {
     {
         float P[12]; neutral(P);
         bool ok = true;
-        for (int cam = 0; cam <= 10; ++cam)
+        for (int cam = 0; cam <= 11; ++cam)
           for (int enc = 0; enc <= 4; ++enc)
             for (float x = 0.02f; x <= 0.98f; x += 0.12f) {
                 float or_,og,ob; pg::process(cam, enc, P, x, x*0.9f, x*1.1f, or_, og, ob);
@@ -95,7 +109,7 @@ int main() {
     // 6. Gain pivots black: a black input stays black under gain
     {
         float P[12]; neutral(P); P[5] = 2.0f;            // gain = 2
-        float r,g,b; pg::process(0, 0, P, 0.f, 0.f, 0.f, r, g, b);
+        float r,g,b; pg::process(1, 0, P, 0.f, 0.f, 0.f, r, g, b);
         check(close(r,0.f,2e-3f)&&close(g,0.f,2e-3f)&&close(b,0.f,2e-3f), "gain pins black");
     }
 
@@ -105,8 +119,8 @@ int main() {
         float P0[12]; neutral(P0);
         float P1[12]; neutral(P1); P1[3] = -0.25f;        // lift down
         float a0,b0,c0, a1,b1,c1;
-        pg::process(0, 0, P0, whiteCode, whiteCode, whiteCode, a0, b0, c0);
-        pg::process(0, 0, P1, whiteCode, whiteCode, whiteCode, a1, b1, c1);
+        pg::process(1, 0, P0, whiteCode, whiteCode, whiteCode, a0, b0, c0);
+        pg::process(1, 0, P1, whiteCode, whiteCode, whiteCode, a1, b1, c1);
         check(close(a0,a1,5e-3f)&&close(b0,b1,5e-3f)&&close(c0,c1,5e-3f), "lift pins white (diffuse white unchanged)");
     }
 
@@ -115,8 +129,8 @@ int main() {
         float P0[12]; neutral(P0);
         float P1[12]; neutral(P1); P1[3] = -0.25f;
         float a0,b0,c0, a1,b1,c1;
-        pg::process(0, 4, P0, 1.0f, 1.0f, 1.0f, a0, b0, c0);   // enc=4 linear so we compare raw
-        pg::process(0, 4, P1, 1.0f, 1.0f, 1.0f, a1, b1, c1);
+        pg::process(1, 4, P0, 1.0f, 1.0f, 1.0f, a0, b0, c0);   // enc=4 linear so we compare raw
+        pg::process(1, 4, P1, 1.0f, 1.0f, 1.0f, a1, b1, c1);
         check(close(a0,a1,1e-2f), "lift leaves superwhites untouched");
     }
 
@@ -125,8 +139,8 @@ int main() {
         float P0[12]; neutral(P0);
         float P1[12]; neutral(P1); P1[10] = 1.0f;    // +1 stop
         float a0,b0,c0, a1,b1,c1;
-        pg::process(0, 4, P0, 0.5f, 0.5f, 0.5f, a0, b0, c0);   // enc=4 = linear output
-        pg::process(0, 4, P1, 0.5f, 0.5f, 0.5f, a1, b1, c1);
+        pg::process(1, 4, P0, 0.5f, 0.5f, 0.5f, a0, b0, c0);   // enc=4 = linear output
+        pg::process(1, 4, P1, 0.5f, 0.5f, 0.5f, a1, b1, c1);
         check(close(a1,2.0f*a0,2e-2f)&&close(b1,2.0f*b0,2e-2f)&&close(c1,2.0f*c0,2e-2f),
               "RAW exposure +1 stop doubles linear output");
     }
@@ -137,9 +151,9 @@ int main() {
         float Pw[12]; neutral(Pw); Pw[11] = 9000.f;   // warmer
         float Pc[12]; neutral(Pc); Pc[11] = 4000.f;   // cooler
         float r6,g6,b6, rw,gw,bw, rc,gc,bc;
-        pg::process(0, 0, P6, 0.5f, 0.5f, 0.5f, r6, g6, b6);
-        pg::process(0, 0, Pw, 0.5f, 0.5f, 0.5f, rw, gw, bw);
-        pg::process(0, 0, Pc, 0.5f, 0.5f, 0.5f, rc, gc, bc);
+        pg::process(1, 0, P6, 0.5f, 0.5f, 0.5f, r6, g6, b6);
+        pg::process(1, 0, Pw, 0.5f, 0.5f, 0.5f, rw, gw, bw);
+        pg::process(1, 0, Pc, 0.5f, 0.5f, 0.5f, rc, gc, bc);
         check(finite3(r6,g6,b6) && rw>r6 && r6>rc && bw<b6 && b6<bc,
               "RAW temp: warmer raises R / lowers B, 6500 sits between");
     }

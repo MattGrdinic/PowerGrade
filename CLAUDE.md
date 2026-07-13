@@ -46,9 +46,10 @@ Per pixel, in `pg::process()`:
    - **Lift** = `lift*(1 - min(v,1))`, pivots **white**, clamped so **superwhites aren't amplified**
    - **Gamma** = power, pivots **black & white**
    Matches Resolve's timeline primary wheels. `pg_lgg(...,g24)` helper.
-7. output encode: **default Rec.709 output = scene OETF** (linear toe), so Lift's taper reads
+7. output encode: **Rec.709 (Scene)** = scene OETF (linear toe), so Lift's taper reads
    linearly on a Rec.709 (Scene) timeline. **Rec.709 (Gamma 2.4)** = pure 2.4 power for a
-   display-referred/broadcast timeline; the grade curve in step 6 follows it. (`encode`/`pg_enc`)
+   display-referred/broadcast timeline — this is the **param default** since the Gen 5 work;
+   the grade curve in step 6 follows whichever is picked. (`encode`/`pg_enc`)
 8. LUT + trilinear sample + mix (done in processor/kernels, after encode)
 9. post-LUT **Trim**: exposure (stops) + contrast about 0.5
 
@@ -56,10 +57,14 @@ Per pixel, in `pg::process()`:
 rawTemp}` (postExp/postCon applied by the caller in the trim step, not inside `process()`;
 rawTemp defaults to 6500 = neutral); `camera` + `outEncode` passed separately as ints.
 
-Cameras (index): 0 BMD DWG/DI · 1 Sony S-Log3 · 2 ARRI LogC3 · 3 LogC4 · 4 Canon Log3 ·
-5 RED Log3G10 · 6 DJI D-Log · 7 Fuji F-Log2 · 8 Panasonic V-Log · 9 Rec.2100 HLG ·
-10 Rec.2100 PQ. Encodes: 0 Rec.709 (Scene) · 1 Rec.709 (Gamma 2.4) · 2 Cineon Log ·
-3 DaVinci Intermediate · 4 Linear. **709 primaries for enc ≤ 2** (Scene/2.4/Cineon); DI &
+Cameras (index): 0 Blackmagic Gen 5 Film — **the param default** (Gen 5 Film log + BMD
+Wide Gamut Gen 4/5, from the Gen 5 Color Science white paper; this is what Pocket/URSA/
+Pyxis clips are in a YRGB project — DWG/DI is NOT correct for them) · 1 BMD DWG/DI ·
+2 Sony S-Log3 · 3 ARRI LogC3 · 4 LogC4 · 5 Canon Log3 · 6 RED Log3G10 · 7 DJI D-Log ·
+8 Fuji F-Log2 · 9 Panasonic V-Log · 10 Rec.2100 HLG · 11 Rec.2100 PQ. (Indices were
+renumbered when Gen 5 moved to slot 0 — pre-renumber saved grades will show the wrong
+camera.) Encodes: 0 Rec.709 (Scene) · 1 Rec.709 (Gamma 2.4) — **the param default** ·
+2 Cineon Log · 3 DaVinci Intermediate · 4 Linear. **709 primaries for enc ≤ 2** (Scene/2.4/Cineon); DI &
 Linear keep DWG primaries. Film Look LUT auto-sets enc=2 (Cineon); Custom Look sets enc=0.
 
 ## Build / test / install (macOS, the dev machine)
@@ -90,12 +95,19 @@ Branch per change → push → user opens PR and merges on GitHub (they do the m
 - **Not HW-validated:** OpenCL correctness (CI compiles/tests only), CUDA (not built in CI).
 - **Camera matrices** other than Blackmagic are published/approx — flagged for on-footage validation.
 - **Can't auto-read the timeline colorspace** from OFX without becoming color-managed (which
-  would make Resolve override our CST). So Output Encode is manual; default Rec.709 (Scene).
+  would make Resolve override our CST). So Output Encode is manual; default Rec.709 (Gamma 2.4).
 - HDR (HLG/PQ) is a **normalize, not a tone-map** — highlights can clip; a real shoulder is future work.
 - Required project setup (also in the plugin's Setup/Help group): DaVinci YRGB, Timeline
-  Rec.709 (Scene), clips left at camera log, no CST/LUT before this node.
+  set to match Output Encode (default Rec.709 Gamma 2.4), clips left at camera log, no
+  CST/LUT before this node.
+- **Don't expect a pixel match against Resolve's "Gen 5 Film to Video" LUT** — "to Video"
+  bakes in Blackmagic's contrast/tone curve, not a plain colorimetric conversion. The right
+  neutral reference is a CST node (Gen 5 Film → Rec.709 / Gamma 2.4, tone mapping off).
 
 ## Likely next tasks
 Cut `v0.1.0`; validate OpenCL/CUDA on real HW; per-camera gamut validation; HDR tone-map
 (highlight roll-off). (Done: Rec.709 Gamma 2.4 output with grade-space-following LGG,
-branch `feature/rec709-gamma24` — visually verify the 2.4 path in Resolve.)
+branch `feature/rec709-gamma24` — validated in Resolve. In progress: camera 0 Blackmagic
+Gen 5 Film — now the default camera, list reordered so both Blackmagic entries lead —
++ default encode → Gamma 2.4, branch `feature/gen5-camera-g24-default` — needs visual
+verify on Pyxis footage vs a CST node.)
