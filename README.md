@@ -49,6 +49,25 @@ onto a node. The controls appear top-to-bottom in the order they're applied.
 
 ## The controls
 
+**0 · Preset** — one-click starting points for a look (they never touch Camera, RAW,
+or Output Encode, and every slider stays live to tweak per clip):
+- **Cinematic Film (Kodak 2383)** — cools the highlights against warm practicals, lifts
+  shadows off video-black, pulls highlights down so they roll off into the Kodak 2383
+  print stock, adds mild density. A fast path from "video" to "graded film".
+- **Cinematic Smooth (PQ Decode)** — the same recipe, but *deliberately decodes the clip
+  as Rec.2100 PQ* (this is the one preset that sets Camera). The PQ curve's compressive
+  top end gives a near-perfect built-in highlight rolloff, smooth color, and rich
+  texture on log footage. Leaving the preset does not restore Camera — set it back per clip.
+- **Vivid Landscape** — golden-ground / teal-sky pop for flat, dull scenery (dry-season
+  browns, hazy skies). Uses [IWLTBAP's free Sedona LUT](https://luts.iwltbap.com/free-lut-download-color-grade-sedona/)
+  at reduced mix if you've installed it in Resolve's LUT folder (recommended — the
+  orange/teal split needs a LUT); otherwise falls back to a strong LUT-free density +
+  contrast pop. Dial Density / LUT Mix / Contrast back to taste.
+- **Vivid Landscape Smooth (PQ Decode)** — the same landscape recipe through the PQ
+  decode (sets Camera, like Cinematic Smooth). Smoother highlights and color on scenes
+  with bright skies and speculars.
+- **None / Reset Look** — returns the look params to neutral.
+
 **1 · Input Transform**
 - **Camera** — pick the source format. Decodes the log/gamut into the working space.
   Supports **Blackmagic Gen 5 Film** (the default — Pocket 4K/6K, URSA, Pyxis clips left
@@ -87,6 +106,10 @@ exclusive (they use different transforms):
 **7 · Trim (after LUT)**
 - **Exposure / Contrast** — final trims applied *after* the LUT. Film emulations darken
   the image by design; raise **Exposure** here to bring it back.
+- **Highlight Rolloff** — per-channel soft clip so lamps and speculars roll off to white
+  instead of clipping into a flat "neon" patch. Higher = earlier, stronger shoulder.
+  Only engages on display-referred output (Rec.709 encodes or any LUT path) — never on
+  Cineon / DI / Linear feeds to downstream nodes.
 
 ## Workflows
 
@@ -140,7 +163,7 @@ deliberate** — this is where most of the correctness lives:
 | 6 | **Lift/Gamma/Gain** | **Rec.709 display curve** — Scene OETF *or* pure 2.4, **follows the output encode** | matches Resolve's timeline wheels; blacks stay pinned; lift clamped at white so superwhites aren't amplified |
 | 7 | output encode | Rec.709 Scene / Rec.709 Gamma 2.4 / Cineon / DI / linear | `encode()` |
 | 8 | **LUT + mix** | output space | trilinear 3D-LUT sample, then lerp by mix (done in the processor / kernels) |
-| 9 | **Trim** | output (display) space | post-LUT exposure (stops) + contrast about 0.5 |
+| 9 | **Trim** | output (display) space | post-LUT exposure (stops) + contrast about 0.5 + per-channel highlight roll-off (display-referred only) |
 
 Parameter vector `P[10]` = `{temp, tint, density, lift, gamma, gain, offTemp, offTint,
 postExp, postCon}`; `camera` and `outEncode` are passed separately as ints.

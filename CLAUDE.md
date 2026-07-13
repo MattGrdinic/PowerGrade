@@ -51,11 +51,15 @@ Per pixel, in `pg::process()`:
    display-referred/broadcast timeline — this is the **param default** since the Gen 5 work;
    the grade curve in step 6 follows whichever is picked. (`encode`/`pg_enc`)
 8. LUT + trilinear sample + mix (done in processor/kernels, after encode)
-9. post-LUT **Trim**: exposure (stops) + contrast about 0.5
+9. post-LUT **Trim**: exposure (stops) + contrast about 0.5 + **Highlight Rolloff**
+   (`pg::softclip`, per-channel display-space soft clip, asymptote 1.0 — saturated
+   practicals converge to white instead of clipping "neon"; gated to display-referred
+   output only: `enc <= 1 || active LUT` — never distorts Cineon/DI/Linear feeds)
 
-`P[12] = {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon, rawExp,
-rawTemp}` (postExp/postCon applied by the caller in the trim step, not inside `process()`;
-rawTemp defaults to 6500 = neutral); `camera` + `outEncode` passed separately as ints.
+`P[13] = {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon, rawExp,
+rawTemp, rolloff}` (postExp/postCon/rolloff applied by the caller in the trim step, not
+inside `process()`; rawTemp defaults to 6500 = neutral); `camera` + `outEncode` passed
+separately as ints.
 
 Cameras (index): 0 Blackmagic Gen 5 Film — **the param default** (Gen 5 Film log + BMD
 Wide Gamut Gen 4/5, from the Gen 5 Color Science white paper; this is what Pocket/URSA/
@@ -66,6 +70,29 @@ renumbered when Gen 5 moved to slot 0 — pre-renumber saved grades will show th
 camera.) Encodes: 0 Rec.709 (Scene) · 1 Rec.709 (Gamma 2.4) — **the param default** ·
 2 Cineon Log · 3 DaVinci Intermediate · 4 Linear. **709 primaries for enc ≤ 2** (Scene/2.4/Cineon); DI &
 Linear keep DWG primaries. Film Look LUT auto-sets enc=2 (Cineon); Custom Look sets enc=0.
+
+## Presets (param layer only — no pipeline/kernel involvement)
+`preset` choice param (group "0 Preset"): 0 None/Reset · 1 Cinematic Film (Kodak 2383) ·
+2 Cinematic Smooth (PQ Decode) · 3 Vivid Landscape · 4 Vivid Landscape Smooth (PQ Decode).
+The two Smooth variants are the ONLY presets that set Camera (→ 11 Rec.2100 PQ, on
+purpose): PQ-decoding log footage gives a compressive "wrong" transform the user loves
+(near-perfect rolloff, smooth color) — discovered when the camera renumber made an old
+node decode Gen 5 as PQ. Cinematic Smooth sets our Rolloff to 0 (PQ is already the
+shoulder). None/Reset does NOT restore Camera. Applied in `PowerGrade::applyPreset()` from `changedParam`, **guarded
+on `eChangeUserEdit`** so project loads don't re-stamp the preset over user tweaks.
+Presets only set look params (balance temp/tint + offsets, density, LGG, lutMode/filmLut/
+lookGroup/lookLut/lutMix, postExp/postCon) — never Camera/RAW/Encode. Balance IS part of
+presets (user decision: cool highlights are part of the cinematic look, not just WB) and
+None/Reset clears it. `kodak2383Index()` finds the film LUT
+(shared with the filmLut describe-time default). Vivid Landscape targets IWLTBAP's free
+"Sedona" LUT (user-installed, found by name via `findLookLut()` — prefer the "- LOG"
+variant, mix 0.54, user-validated); LUT-free fallback when absent (density 0.45 /
+contrast 1.18 — NOT validated on footage). Cinematic Film values are user-validated
+(lift 0.11, gain 0.80, 2383, +0.55 post-exp, rolloff 0.5 — the rolloff exists because the
+user's original reference was accidentally PQ-decoded Gen 5 footage, whose compressive top
+end read "bright but not neon"; correct Gen 5 decode + the exposure push clipped practicals
+until the rolloff was added). Don't bundle the Sedona .cube in the repo
+(license). Values are starting points — expect on-footage tuning requests.
 
 ## Build / test / install (macOS, the dev machine)
 ```bash
@@ -105,6 +132,11 @@ Branch per change → push → user opens PR and merges on GitHub (they do the m
   neutral reference is a CST node (Gen 5 Film → Rec.709 / Gamma 2.4, tone mapping off).
 
 ## Likely next tasks
+**Rolloff smoothness on Gen 5 (user's active thread):** the Highlight Rolloff softclip is
+not yet as smooth as the "Blackmagic Gen 5 Film to Video" LUT, which is the stated target
+for the default Gen 5 path (Cinematic Film preset). Candidates: tune softclip knee/curve,
+or a scene-linear shoulder before encode instead of (or blended with) the display-space clip.
+
 Cut `v0.1.0`; validate OpenCL/CUDA on real HW; per-camera gamut validation; HDR tone-map
 (highlight roll-off). (Done: Rec.709 Gamma 2.4 output with grade-space-following LGG,
 branch `feature/rec709-gamma24` — validated in Resolve. In progress: camera 0 Blackmagic

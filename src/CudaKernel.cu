@@ -105,6 +105,12 @@ __device__ void pg_sampleLUT(const float* lut,int N,const float c[3],float o[3])
     }
 }
 
+__device__ float pg_softclip(float v, float amt){
+    if(amt<=0.0f || v<=0.0f) return v;
+    float k=1.0f-0.6f*amt; if(v<=k) return v;
+    float r=1.0f-k; return k + r*(1.0f-expf(-(v-k)/r));
+}
+
 __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,const float* lut,int lutN,float lutMix,const float* in,float* out){
     const int x=blockIdx.x*blockDim.x+threadIdx.x;
     const int y=blockIdx.y*blockDim.y+threadIdx.y;
@@ -126,6 +132,7 @@ __global__ void PowerGradeKernel(int W,int H,const float* P,int cam,int enc,cons
         float e[3]={pg_enc(enc,outc[0]),pg_enc(enc,outc[1]),pg_enc(enc,outc[2])};
         if(lutN>=2 && lutMix>0.0f){ float s[3]; pg_sampleLUT(lut,lutN,e,s); for(int k=0;k<3;k++) e[k]=e[k]+(s[k]-e[k])*lutMix; }
         float ex=exp2f(P[8]); for(int k=0;k<3;k++) e[k]=(e[k]*ex-0.5f)*P[9]+0.5f;  // post-LUT trim
+        if(P[12]>0.0f && (enc<=1 || (lutN>=2 && lutMix>0.0f))) for(int k=0;k<3;k++) e[k]=pg_softclip(e[k],P[12]);  // highlight roll-off (display-referred only)
         out[i]=e[0]; out[i+1]=e[1]; out[i+2]=e[2]; out[i+3]=in[i+3];
     }
 }
@@ -138,8 +145,8 @@ void RunCudaKernel(void* p_Stream, int p_Width, int p_Height, const float* p_Par
     dim3 blocks((p_Width + threads.x - 1) / threads.x, (p_Height + threads.y - 1) / threads.y, 1);
 
     float* d_params = nullptr;
-    cudaMalloc(&d_params, sizeof(float) * 12);
-    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 12, cudaMemcpyHostToDevice, stream);
+    cudaMalloc(&d_params, sizeof(float) * 13);
+    cudaMemcpyAsync(d_params, p_Params, sizeof(float) * 13, cudaMemcpyHostToDevice, stream);
 
     int lutN = (p_Lut && p_LutSize >= 2) ? p_LutSize : 0;
     float* d_lut = nullptr;

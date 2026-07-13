@@ -128,6 +128,12 @@ inline float3 pg_sampleLUT(const device float* lut, int N, float3 c){
     return res;
 }
 
+inline float pg_softclip(float v, float amt){
+    if(amt<=0.0f || v<=0.0f) return v;
+    float k=1.0f-0.6f*amt; if(v<=k) return v;
+    float r=1.0f-k; return k + r*(1.0f-exp(-(v-k)/r));
+}
+
 kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[buffer(12)]],
     constant float* P [[buffer(13)]], constant int& cam [[buffer(14)]], constant int& enc [[buffer(15)]],
     const device float* lut [[buffer(1)]], constant int& lutN [[buffer(16)]], constant float& lutMix [[buffer(17)]],
@@ -148,6 +154,7 @@ kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[b
         float3 e = float3(pg_enc(enc,outc.x), pg_enc(enc,outc.y), pg_enc(enc,outc.z));
         if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e = e + (s-e)*lutMix; }  // LUT + mix
         float ex=exp2(P[8]); e = (e*ex - 0.5f)*P[9] + 0.5f;                                     // post-LUT trim (exposure, contrast)
+        if(P[12]>0.0f && (enc<=1 || (lutN>=2 && lutMix>0.0f))){ e.x=pg_softclip(e.x,P[12]); e.y=pg_softclip(e.y,P[12]); e.z=pg_softclip(e.z,P[12]); } // highlight roll-off (display-referred only)
         out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];
     }
 }
@@ -229,7 +236,7 @@ void RunMetalKernel(void* p_CmdQ, int p_Width, int p_Height, const float* p_Para
     [computeEncoder setBuffer:dstDeviceBuf offset:0 atIndex:8];
     [computeEncoder setBytes:&p_Width  length:sizeof(int) atIndex:11];
     [computeEncoder setBytes:&p_Height length:sizeof(int) atIndex:12];
-    [computeEncoder setBytes:p_Params  length:sizeof(float)*12 atIndex:13];
+    [computeEncoder setBytes:p_Params  length:sizeof(float)*13 atIndex:13];
     [computeEncoder setBytes:&p_Camera length:sizeof(int) atIndex:14];
     [computeEncoder setBytes:&p_Encode length:sizeof(int) atIndex:15];
     [computeEncoder setBytes:&lutN     length:sizeof(int) atIndex:16];

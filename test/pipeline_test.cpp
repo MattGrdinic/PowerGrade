@@ -93,6 +93,22 @@ int main() {
         check(close(r,0.4f)&&close(g,0.5f)&&close(b,0.6f), "neutral trim is identity");
     }
 
+    // 4b. Highlight roll-off (softclip): amt 0 = identity, identity below the knee,
+    //     continuous at the knee, monotonic and bounded by 1.0 above it
+    {
+        bool ok = true;
+        for (float v = 0.f; v <= 3.f; v += 0.1f) ok &= close(pg::softclip(v, 0.f), v, 1e-6f);
+        ok &= close(pg::softclip(0.3f, 0.5f), 0.3f, 1e-6f);          // below knee (k = 0.7)
+        ok &= close(pg::softclip(0.7001f, 0.5f), 0.7f, 1e-3f);       // continuity at the knee
+        float prev = -1e9f;
+        for (float v = 0.f; v <= 20.f; v += 0.25f) {
+            float y = pg::softclip(v, 0.5f);
+            ok &= (y >= prev - 1e-6f) && (y <= 1.0f + 1e-4f);
+            prev = y;
+        }
+        check(ok, "highlight roll-off: identity below knee, monotonic, bounded at 1");
+    }
+
     // 5. Full pipeline is finite for every camera x encode x sample input
     {
         float P[12]; neutral(P);

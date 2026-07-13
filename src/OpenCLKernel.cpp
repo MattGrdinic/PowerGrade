@@ -95,9 +95,13 @@ const char* KernelSource = "\n" \
 "    float c11=lut[((b1*N+g1)*N+r0)*3+ch]*(1-fr)+lut[((b1*N+g1)*N+r1)*3+ch]*fr;                                 \n" \
 "    float c0=c00*(1-fg)+c10*fg,c1=c01*(1-fg)+c11*fg; res[ch]=c0*(1-fb)+c1*fb; }                                \n" \
 "  return (float3)(res[0],res[1],res[2]); }                                                                     \n" \
+"inline float pg_softclip(float v, float amt){                                                                  \n" \
+"  if(amt<=0.0f || v<=0.0f) return v;                                                                            \n" \
+"  float k=1.0f-0.6f*amt; if(v<=k) return v;                                                                     \n" \
+"  float r=1.0f-k; return k + r*(1.0f-exp(-(v-k)/r)); }                                                          \n" \
 "__kernel void PowerGradeKernel(int W,int H,int cam,int enc,                                                    \n" \
 "  float temp,float tint,float density,float lift,float gamma,float gain,float offTemp,float offTint,           \n" \
-"  float postExp,float postCon,float rawExp,float rawTemp, int lutN, float lutMix, __global const float* lut,   \n" \
+"  float postExp,float postCon,float rawExp,float rawTemp,float rolloff, int lutN, float lutMix, __global const float* lut, \n" \
 "  __global const float* in, __global float* out) {                                                             \n" \
 "  const int x=get_global_id(0); const int y=get_global_id(1);                                                  \n" \
 "  if(x<W && y<H){                                                                                              \n" \
@@ -114,6 +118,7 @@ const char* KernelSource = "\n" \
 "    float3 e=(float3)(pg_enc(enc,outc.x),pg_enc(enc,outc.y),pg_enc(enc,outc.z));                                \n" \
 "    if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e=e+(s-e)*lutMix; }                          \n" \
 "    float ex=exp2(postExp); e=(e*ex-0.5f)*postCon+0.5f;                                                         \n" \
+"    if(rolloff>0.0f && (enc<=1 || (lutN>=2 && lutMix>0.0f))){ e.x=pg_softclip(e.x,rolloff); e.y=pg_softclip(e.y,rolloff); e.z=pg_softclip(e.z,rolloff); } \n" \
 "    out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];                                                  \n" \
 "  } }                                                                                                          \n" \
 "\n";
@@ -221,7 +226,7 @@ void RunOpenCLKernelBuffers(void* p_CmdQ, int p_Width, int p_Height, const float
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Height);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Camera);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &p_Encode);
-    for (int i = 0; i < 12; ++i)
+    for (int i = 0; i < 13; ++i)
         error |= clSetKernelArg(kernel, count++, sizeof(float), &p_Params[i]);
     error |= clSetKernelArg(kernel, count++, sizeof(int), &lutN);
     error |= clSetKernelArg(kernel, count++, sizeof(float), &p_LutMix);

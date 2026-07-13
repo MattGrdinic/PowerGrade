@@ -31,7 +31,7 @@
 #define kSupportsMultiResolution    false
 #define kSupportsMultipleClipPARs   false
 
-#define kParamCount 12 // temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon,rawExp,rawTemp
+#define kParamCount 13 // temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon,rawExp,rawTemp,rolloff
 
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
 #define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
@@ -62,6 +62,37 @@ static void scanDir(const std::string& root, LutList& out)
         if (ext == ".cube") { out.emplace_back(p.stem().string(), p.string()); if (out.size() >= 1000) break; }
     }
     std::sort(out.begin(), out.end());
+}
+
+// Index of the preferred film print stock in s_FilmLuts: Kodak 2383 D60, Rec.709 variant
+// preferred (the film path outputs Rec.709). 0 if not found. Used for the filmLut default
+// and by the Cinematic Film preset.
+static int kodak2383Index()
+{
+    int idx = 0;
+    for (size_t i = 0; i < s_FilmLuts.size(); ++i) {
+        std::string n = s_FilmLuts[i].first;
+        std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+        if (n.find("kodak 2383 d60") != std::string::npos) {
+            idx = (int)i;
+            if (n.find("rec709") != std::string::npos) break;   // prefer Rec.709 variant
+        }
+    }
+    return idx;
+}
+
+// Find a Look LUT by case-insensitive name fragment across all groups. Fills (group, lut)
+// indices when found. Used by the Vivid Landscape preset to pick up IWLTBAP's free
+// "Sedona" LUT when the user has it installed in Resolve's LUT folder.
+static bool findLookLut(const char* fragment, int& groupIdx, int& lutIdx)
+{
+    for (size_t g = 0; g < s_LookGroups.size(); ++g)
+        for (size_t l = 0; l < s_LookGroups[g].second.size(); ++l) {
+            std::string n = s_LookGroups[g].second[l].first;
+            std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+            if (n.find(fragment) != std::string::npos) { groupIdx = (int)g; lutIdx = (int)l; return true; }
+        }
+    return false;
 }
 
 static void scanLuts()
@@ -190,6 +221,8 @@ void PowerGradeProcessor::multiThreadProcessImages(OfxRectI p_ProcWindow)
                 if (_lut && _lutSize >= 2 && _lutMix > 0.0f)
                     pg::apply_lut(_lut, _lutSize, _lutMix, dstPix[0], dstPix[1], dstPix[2]);
                 pg::apply_trim(_params[8], _params[9], dstPix[0], dstPix[1], dstPix[2]);  // post-LUT trim
+                if (_params[12] > 0.0f && (_encode <= 1 || (_lut && _lutSize >= 2 && _lutMix > 0.0f)))
+                    for (int c = 0; c < 3; ++c) dstPix[c] = pg::softclip(dstPix[c], _params[12]);  // highlight roll-off (display-referred only)
                 dstPix[3] = srcPix[3];
             }
             else
@@ -227,12 +260,14 @@ public:
     virtual void changedParam(const OFX::InstanceChangedArgs& p_Args, const std::string& p_ParamName);
     void setEnabledness();
     void populateLookLut();     // repopulate the Look LUT dropdown for the current group
+    void applyPreset(int p);    // set the look params (density/LGG/LUT/trim) to a starting point
     void setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderArguments& p_Args);
 
 private:
     OFX::Clip* m_DstClip;
     OFX::Clip* m_SrcClip;
 
+    OFX::ChoiceParam* m_Preset;
     OFX::ChoiceParam* m_Camera;
     OFX::DoubleParam* m_RawExp;
     OFX::DoubleParam* m_RawTemp;
@@ -247,6 +282,7 @@ private:
     OFX::ChoiceParam* m_Encode;
     OFX::DoubleParam* m_PostExp;
     OFX::DoubleParam* m_PostCon;
+    OFX::DoubleParam* m_Rolloff;
 
     OFX::ChoiceParam* m_LutMode;    // 0 none, 1 custom look, 2 film-look built-in
     OFX::ChoiceParam* m_FilmLut;
@@ -262,6 +298,7 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
     m_DstClip = fetchClip(kOfxImageEffectOutputClipName);
     m_SrcClip = fetchClip(kOfxImageEffectSimpleSourceClipName);
 
+    m_Preset  = fetchChoiceParam("preset");
     m_Camera  = fetchChoiceParam("camera");
     m_RawExp  = fetchDoubleParam("rawExp");
     m_RawTemp = fetchDoubleParam("rawTemp");
@@ -276,6 +313,7 @@ PowerGrade::PowerGrade(OfxImageEffectHandle p_Handle)
     m_Encode  = fetchChoiceParam("outEncode");
     m_PostExp = fetchDoubleParam("postExp");
     m_PostCon = fetchDoubleParam("postCon");
+    m_Rolloff = fetchDoubleParam("rolloff");
 
     m_LutMode  = fetchChoiceParam("lutMode");
     m_FilmLut  = fetchChoiceParam("filmLut");
@@ -310,10 +348,109 @@ void PowerGrade::populateLookLut()
         m_LookLut->appendOption("(none)");
 }
 
-void PowerGrade::changedParam(const OFX::InstanceChangedArgs& /*p_Args*/, const std::string& p_ParamName)
+// Presets are one-shot starting points: they set the LOOK params (Balance, Density,
+// Lift/Gamma/Gain, LUT, Trim) and leave the per-clip ones (Camera, RAW, Output Encode)
+// alone. "None / Reset Look" returns those look params to neutral.
+void PowerGrade::applyPreset(int p)
+{
+    if (p == 1) {           // Cinematic Film: cool the highlights (the teal-vs-practicals
+                            // split), lift shadows off video-black, pull gain hard so
+                            // highlights roll off into the Kodak 2383 print curve, then bring
+                            // brightness back post-LUT (values tuned on footage in Resolve)
+        m_OffTemp->setValue(-0.02);
+        m_OffTint->setValue(0.01);
+        m_Temp->setValue(-0.22);
+        m_Tint->setValue(0.09);
+        m_Density->setValue(0.10);
+        m_Lift->setValue(0.11);
+        m_Gamma->setValue(1.0);
+        m_Gain->setValue(0.80);
+        m_LutMode->setValue(2);
+        m_FilmLut->setValue(kodak2383Index());
+        m_LutMix->setValue(1.0);
+        m_PostExp->setValue(0.55);
+        m_PostCon->setValue(1.0);
+        m_Rolloff->setValue(0.5);   // keep bright practicals from clipping neon after the +0.55 push
+    } else if (p == 2) {    // Cinematic Smooth: the Cinematic Film recipe, but decode the clip
+                            // as Rec.2100 PQ on purpose — the ONE preset that sets Camera. PQ's
+                            // compressive inverse-EOTF gives a near-perfect built-in highlight
+                            // rolloff, smooth color and rich texture on log footage (discovered
+                            // on Gen 5 clips via the index renumber, kept as a look). Rolloff
+                            // stays 0 — the PQ curve is already the shoulder.
+        m_Camera->setValue(11);     // Rec.2100 PQ / ST.2084
+        m_OffTemp->setValue(-0.02);
+        m_OffTint->setValue(0.01);
+        m_Temp->setValue(-0.22);
+        m_Tint->setValue(0.09);
+        m_Density->setValue(0.10);
+        m_Lift->setValue(0.11);
+        m_Gamma->setValue(1.0);
+        m_Gain->setValue(0.80);
+        m_LutMode->setValue(2);
+        m_FilmLut->setValue(kodak2383Index());
+        m_LutMix->setValue(1.0);
+        m_PostExp->setValue(0.55);
+        m_PostCon->setValue(1.0);
+        m_Rolloff->setValue(0.0);
+    } else if (p == 3 || p == 4) {  // Vivid Landscape: aims at IWLTBAP's free "Sedona" look
+                            // (golden grounds / teal skies). That hue split needs a LUT, so when
+                            // the Sedona Look LUT is installed use it at reduced mix (tuned on
+                            // footage); otherwise fall back to a punchy LUT-free density +
+                            // contrast pop — dial back with Density and Trim Contrast.
+                            // p==4 = the Smooth variant: same recipe but decode as Rec.2100 PQ
+                            // (see Cinematic Smooth above for why the "wrong" decode is a look).
+        if (p == 4) m_Camera->setValue(11);   // Rec.2100 PQ / ST.2084
+        int gi = 0, li = 0;
+        const bool sedona = findLookLut("sedona - log", gi, li) || findLookLut("sedona", gi, li);
+        m_OffTemp->setValue(0.0);
+        m_OffTint->setValue(0.0);
+        m_Temp->setValue(0.0);
+        m_Tint->setValue(0.0);
+        m_Density->setValue(sedona ? 0.0 : 0.45);
+        m_Lift->setValue(sedona ? 0.0 : -0.03);
+        m_Gamma->setValue(sedona ? 1.0 : 0.94);
+        m_Gain->setValue(sedona ? 1.0 : 1.08);
+        if (sedona) {
+            m_LookGroup->setValue(gi);
+            populateLookLut();
+            m_LookLut->setValue(li);
+            m_LutMode->setValue(1);
+            m_LutMix->setValue(0.54);
+        } else {
+            m_LutMode->setValue(0);
+            m_LutMix->setValue(1.0);
+        }
+        m_PostExp->setValue(sedona ? 0.0 : 0.10);
+        m_PostCon->setValue(sedona ? 1.0 : 1.18);
+        m_Rolloff->setValue(0.0);
+    } else {                // None / Reset Look
+        m_OffTemp->setValue(0.0);
+        m_OffTint->setValue(0.0);
+        m_Temp->setValue(0.0);
+        m_Tint->setValue(0.0);
+        m_Density->setValue(0.0);
+        m_Lift->setValue(0.0);
+        m_Gamma->setValue(1.0);
+        m_Gain->setValue(1.0);
+        m_LutMode->setValue(0);
+        m_LutMix->setValue(1.0);
+        m_PostExp->setValue(0.0);
+        m_PostCon->setValue(1.0);
+        m_Rolloff->setValue(0.0);
+    }
+}
+
+void PowerGrade::changedParam(const OFX::InstanceChangedArgs& p_Args, const std::string& p_ParamName)
 {
     if (p_ParamName == "lutMode") setEnabledness();
     else if (p_ParamName == "lookGroup") { populateLookLut(); m_LookLut->setValue(0); }
+    // Only on a real user edit — project load / plugin edits must not re-stamp the preset
+    // over values the user has since tweaked.
+    else if (p_ParamName == "preset" && p_Args.reason == OFX::eChangeUserEdit) {
+        int p = 0; m_Preset->getValue(p);
+        applyPreset(p);
+        setEnabledness();   // the preset may have switched LUT Mode
+    }
 }
 
 void PowerGrade::render(const OFX::RenderArguments& p_Args)
@@ -361,6 +498,7 @@ void PowerGrade::setupAndProcess(PowerGradeProcessor& p_Proc, const OFX::RenderA
     params[9] = (float)m_PostCon->getValueAtTime(p_Args.time);
     params[10] = (float)m_RawExp->getValueAtTime(p_Args.time);
     params[11] = (float)m_RawTemp->getValueAtTime(p_Args.time);
+    params[12] = (float)m_Rolloff->getValueAtTime(p_Args.time);
 
     // Resolve the active LUT (path from mode) and load it (cached by path).
     std::string lutPath;
@@ -453,6 +591,21 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     dstClip->setSupportsTiles(kSupportsTiles);
 
     PageParamDescriptor* page = p_Desc.definePageParam("Controls");
+
+    // ---- 0. Preset ----  one-shot look starting points (see PowerGrade::applyPreset)
+    GroupParamDescriptor* gPreset = p_Desc.defineGroupParam("gPreset");
+    gPreset->setLabels("0  Preset", "0  Preset", "0  Preset");
+    ChoiceParamDescriptor* preset = p_Desc.defineChoiceParam("preset");
+    preset->setLabels("Preset", "Preset", "Preset");
+    preset->setHint("A starting point, not a lock: picking one sets Balance, Density, Lift/Gamma/Gain, the LUT and Trim, and every slider stays live to tweak per clip. RAW and Output Encode are never touched. None / Reset Look returns the look params to neutral. Cinematic Smooth is the ONE preset that also sets Camera: it deliberately decodes the clip as Rec.2100 PQ, whose compressive curve gives a near-perfect highlight rolloff, smooth color and rich texture (set Camera back yourself when leaving it). Vivid Landscape uses IWLTBAP's free Sedona LUT (luts.iwltbap.com) at reduced mix when it's installed in Resolve's LUT folder; without it, a LUT-free density/contrast pop.");
+    preset->appendOption("None / Reset Look");
+    preset->appendOption("Cinematic Film (Kodak 2383)");
+    preset->appendOption("Cinematic Smooth (PQ Decode)");
+    preset->appendOption("Vivid Landscape");
+    preset->appendOption("Vivid Landscape Smooth (PQ Decode)");
+    preset->setDefault(0);
+    preset->setParent(*gPreset);
+    page->addChild(*preset);
 
     // ---- 1. Input Transform (CST) ----
     GroupParamDescriptor* gInput = p_Desc.defineGroupParam("gInput");
@@ -547,17 +700,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     filmLut->setHint("Built-in film-look LUT (Resolve's Film Looks). Active when LUT Mode = Film Look; encodes to Cineon automatically.");
     if (s_FilmLuts.empty()) filmLut->appendOption("(no .cube LUTs found)");
     else for (const auto& fl : s_FilmLuts) filmLut->appendOption(fl.first);
-    // Default to Kodak 2383 D60 (prefer the Rec.709 variant, since the film path outputs Rec.709).
-    int filmDefault = 0;
-    for (size_t i = 0; i < s_FilmLuts.size(); ++i) {
-        std::string n = s_FilmLuts[i].first;
-        std::transform(n.begin(), n.end(), n.begin(), ::tolower);
-        if (n.find("kodak 2383 d60") != std::string::npos) {
-            filmDefault = (int)i;
-            if (n.find("rec709") != std::string::npos) break;   // prefer Rec.709 variant
-        }
-    }
-    filmLut->setDefault(filmDefault);
+    filmLut->setDefault(kodak2383Index());   // Kodak 2383 D60, Rec.709 variant preferred
     filmLut->setParent(*gLut);
     page->addChild(*filmLut);
 
@@ -589,6 +732,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gTrim->setLabels("7  Trim (after LUT)", "7  Trim (after LUT)", "7  Trim (after LUT)");
     page->addChild(*defineSlider(p_Desc, "postExp", "Exposure", "Post-LUT exposure trim in stops. Bring brightness back after a film-emulation LUT.", 0.0, -3.0, 3.0, 0.01, gTrim));
     page->addChild(*defineSlider(p_Desc, "postCon", "Contrast", "Post-LUT contrast trim about mid (0.5), applied after the LUT.", 1.0, 0.0, 2.0, 0.001, gTrim));
+    page->addChild(*defineSlider(p_Desc, "rolloff", "Highlight Rolloff", "Soft-clips bright highlights per channel so lamps/speculars roll off to white instead of clipping to a flat neon patch. Higher = earlier, stronger shoulder. Only active on display-referred output (Rec.709 encodes or any LUT path).", 0.0, 0.0, 1.0, 0.001, gTrim));
 
     // ---- 8. Setup / Help ----
     GroupParamDescriptor* gHelp = p_Desc.defineGroupParam("gHelp");

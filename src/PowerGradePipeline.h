@@ -15,7 +15,8 @@
 //                   pure 2.4) so the wheels read linearly on whichever timeline you match.
 //
 //  P[] layout: {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon,
-//               rawExp, rawTemp}   (postExp/postCon applied by the caller, not process())
+//               rawExp, rawTemp, rolloff}   (postExp/postCon/rolloff applied by the caller,
+//               not process(); rolloff only on display-referred output — see softclip())
 #pragma once
 #include <cmath>
 #include <algorithm>
@@ -225,6 +226,21 @@ static inline void apply_lut(const float* lut, int N, float mix,
     r = r + (out[0]-r)*mix;
     g = g + (out[1]-g)*mix;
     b = b + (out[2]-b)*mix;
+}
+
+// Per-channel display-space highlight roll-off (soft clip): identity below the knee,
+// smooth exponential shoulder above, asymptote at 1.0. Saturated super-brights converge
+// to white instead of clipping at full chroma (the "neon" look). amt 0 = off; larger amt
+// lowers the knee (amt 1 -> knee 0.4). Callers apply it after the trim, and only when the
+// output is display-referred (Rec.709 encodes, or any path through a LUT) — never on
+// Cineon/DI/Linear feeds to downstream nodes.
+static inline float softclip(float v, float amt)
+{
+    if (amt <= 0.f || v <= 0.f) return v;
+    float k = 1.0f - 0.6f*amt;
+    if (v <= k) return v;
+    float r = 1.0f - k;
+    return k + r*(1.0f - expf(-(v - k)/r));
 }
 
 // Post-LUT trim in display space: exposure (multiply) then contrast about 0.5.
