@@ -13,6 +13,11 @@
 #include <algorithm>
 #include <map>
 #include <filesystem>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "ofxsImageEffect.h"
 #include "ofxsMultiThread.h"
@@ -81,6 +86,28 @@ static int kodak2383Index()
     return idx;
 }
 
+// Directory of the LUTs we ship inside the bundle (<bundle>/Contents/Resources/LUTs),
+// resolved from the plugin binary's own path so it works wherever the bundle lives.
+static std::string bundleLutDir()
+{
+    std::string bin;
+#ifdef _WIN32
+    HMODULE hm = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)&bundleLutDir, &hm)) {
+        char path[MAX_PATH];
+        if (GetModuleFileNameA(hm, path, MAX_PATH)) bin = path;
+    }
+#else
+    Dl_info info;
+    if (dladdr((void*)&bundleLutDir, &info) && info.dli_fname) bin = info.dli_fname;
+#endif
+    if (bin.empty()) return {};
+    namespace fs = std::filesystem;
+    fs::path contents = fs::path(bin).parent_path().parent_path();   // Contents/<arch>/PowerGrade.ofx -> Contents
+    return (contents / "Resources" / "LUTs").string();
+}
+
 // Find a Look LUT by case-insensitive name fragment across all groups. Fills (group, lut)
 // indices when found. Used by the Vivid Landscape preset to pick up IWLTBAP's free
 // "Sedona" LUT when the user has it installed in Resolve's LUT folder.
@@ -104,6 +131,12 @@ static void scanLuts()
 
     std::string filmDir = std::string(kFilmLutDir) + "/Film Looks";
     scanDir(fs::exists(filmDir, ec) ? filmDir : kFilmLutDir, s_FilmLuts);
+
+    // LUTs shipped inside the bundle — surfaced as the first Look group so the
+    // presets (and users) get them with zero external installs.
+    LutList builtin;
+    scanDir(bundleLutDir(), builtin);
+    if (!builtin.empty()) s_LookGroups.emplace_back("PowerGrade (built-in)", builtin);
 
     // Group the whole master folder by top-level subfolder (files in root -> "General").
     std::map<std::string, LutList> groups;
@@ -392,37 +425,59 @@ void PowerGrade::applyPreset(int p)
         m_PostExp->setValue(0.55);
         m_PostCon->setValue(1.0);
         m_Rolloff->setValue(0.0);
-    } else if (p == 3 || p == 4) {  // Vivid Landscape: aims at IWLTBAP's free "Sedona" look
-                            // (golden grounds / teal skies). That hue split needs a LUT, so when
-                            // the Sedona Look LUT is installed use it at reduced mix (tuned on
-                            // footage); otherwise fall back to a punchy LUT-free density +
-                            // contrast pop — dial back with Density and Trim Contrast.
-                            // p==4 = the Smooth variant: same recipe but decode as Rec.2100 PQ
-                            // (see Cinematic Smooth above for why the "wrong" decode is a look).
-        if (p == 4) m_Camera->setValue(11);   // Rec.2100 PQ / ST.2084
+    } else if (p == 3) {    // Desert Day: our built-in LUT (luts/generate_luts.py) — pale
+                            // mid-day desert scenery -> warm pop, deeper teal-leaning skies,
+                            // richer ground oranges. LUT-free punchy fallback if the bundled
+                            // LUT is somehow missing.
         int gi = 0, li = 0;
-        const bool sedona = findLookLut("sedona - log", gi, li) || findLookLut("sedona", gi, li);
+        const bool lut = findLookLut("powergrade desert day", gi, li);
         m_OffTemp->setValue(0.0);
         m_OffTint->setValue(0.0);
         m_Temp->setValue(0.0);
         m_Tint->setValue(0.0);
-        m_Density->setValue(sedona ? 0.0 : 0.45);
-        m_Lift->setValue(sedona ? 0.0 : -0.03);
-        m_Gamma->setValue(sedona ? 1.0 : 0.94);
-        m_Gain->setValue(sedona ? 1.0 : 1.08);
-        if (sedona) {
+        m_Density->setValue(lut ? 0.0 : 0.45);
+        m_Lift->setValue(lut ? 0.0 : -0.03);
+        m_Gamma->setValue(lut ? 1.0 : 0.94);
+        m_Gain->setValue(lut ? 1.0 : 1.08);
+        if (lut) {
             m_LookGroup->setValue(gi);
             populateLookLut();
             m_LookLut->setValue(li);
             m_LutMode->setValue(1);
-            m_LutMix->setValue(0.54);
+            m_LutMix->setValue(1.0);
         } else {
             m_LutMode->setValue(0);
             m_LutMix->setValue(1.0);
         }
-        m_PostExp->setValue(sedona ? 0.0 : 0.10);
-        m_PostCon->setValue(sedona ? 1.0 : 1.18);
+        m_PostExp->setValue(lut ? 0.0 : 0.10);
+        m_PostCon->setValue(lut ? 1.0 : 1.18);
         m_Rolloff->setValue(0.0);
+    } else if (p == 4) {    // Cinematic Landscape: our built-in creamy outdoor LUT — lifted
+                            // soft shadows, early smooth shoulder, enriched greens, low-chroma
+                            // toe. LUT-free soft fallback if the bundled LUT is missing.
+        int gi = 0, li = 0;
+        const bool lut = findLookLut("powergrade cinematic landscape", gi, li);
+        m_OffTemp->setValue(0.0);
+        m_OffTint->setValue(0.0);
+        m_Temp->setValue(0.0);
+        m_Tint->setValue(0.0);
+        m_Density->setValue(lut ? 0.0 : 0.15);
+        m_Lift->setValue(lut ? 0.0 : 0.05);
+        m_Gamma->setValue(1.0);
+        m_Gain->setValue(lut ? 1.0 : 0.95);
+        if (lut) {
+            m_LookGroup->setValue(gi);
+            populateLookLut();
+            m_LookLut->setValue(li);
+            m_LutMode->setValue(1);
+            m_LutMix->setValue(1.0);
+        } else {
+            m_LutMode->setValue(0);
+            m_LutMix->setValue(1.0);
+        }
+        m_PostExp->setValue(0.0);
+        m_PostCon->setValue(1.0);
+        m_Rolloff->setValue(lut ? 0.0 : 0.4);
     } else {                // None / Reset Look
         m_OffTemp->setValue(0.0);
         m_OffTint->setValue(0.0);
@@ -597,12 +652,12 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gPreset->setLabels("0  Preset", "0  Preset", "0  Preset");
     ChoiceParamDescriptor* preset = p_Desc.defineChoiceParam("preset");
     preset->setLabels("Preset", "Preset", "Preset");
-    preset->setHint("A starting point, not a lock: picking one sets Balance, Density, Lift/Gamma/Gain, the LUT and Trim, and every slider stays live to tweak per clip. RAW and Output Encode are never touched. None / Reset Look returns the look params to neutral. Cinematic Smooth is the ONE preset that also sets Camera: it deliberately decodes the clip as Rec.2100 PQ, whose compressive curve gives a near-perfect highlight rolloff, smooth color and rich texture (set Camera back yourself when leaving it). Vivid Landscape uses IWLTBAP's free Sedona LUT (luts.iwltbap.com) at reduced mix when it's installed in Resolve's LUT folder; without it, a LUT-free density/contrast pop.");
+    preset->setHint("A starting point, not a lock: picking one sets Balance, Density, Lift/Gamma/Gain, the LUT and Trim, and every slider stays live to tweak per clip. RAW and Output Encode are never touched. None / Reset Look returns the look params to neutral. Cinematic Smooth is the ONE preset that also sets Camera: it deliberately decodes the clip as Rec.2100 PQ, whose compressive curve gives a near-perfect highlight rolloff, smooth color and rich texture (set Camera back yourself when leaving it). Desert Day and Cinematic Landscape use PowerGrade's own built-in LUTs, shipped inside the plugin — nothing to download; trim with LUT Mix.");
     preset->appendOption("None / Reset Look");
     preset->appendOption("Cinematic Film (Kodak 2383)");
     preset->appendOption("Cinematic Smooth (PQ Decode)");
-    preset->appendOption("Vivid Landscape");
-    preset->appendOption("Vivid Landscape Smooth (PQ Decode)");
+    preset->appendOption("Desert Day");
+    preset->appendOption("Cinematic Landscape");
     preset->setDefault(0);
     preset->setParent(*gPreset);
     page->addChild(*preset);

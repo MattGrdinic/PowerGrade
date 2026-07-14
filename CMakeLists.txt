@@ -69,6 +69,11 @@ add_custom_command(TARGET PowerGrade POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLE}/Contents/${ARCHDIR}"
   COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:PowerGrade>" "${BUNDLE}/Contents/${ARCHDIR}/PowerGrade.ofx"
   COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_SOURCE_DIR}/src/Info.plist" "${BUNDLE}/Contents/Info.plist"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${BUNDLE}/Contents/Resources/LUTs"
+  COMMAND ${CMAKE_COMMAND} -E copy
+          "${CMAKE_SOURCE_DIR}/luts/PowerGrade Desert Day.cube"
+          "${CMAKE_SOURCE_DIR}/luts/PowerGrade Cinematic Landscape.cube"
+          "${BUNDLE}/Contents/Resources/LUTs/"
   COMMENT "Assembling PowerGrade.ofx.bundle")
 
 # ---- CPU unit tests ----

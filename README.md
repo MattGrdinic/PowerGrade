@@ -58,14 +58,17 @@ or Output Encode, and every slider stays live to tweak per clip):
   as Rec.2100 PQ* (this is the one preset that sets Camera). The PQ curve's compressive
   top end gives a near-perfect built-in highlight rolloff, smooth color, and rich
   texture on log footage. Leaving the preset does not restore Camera — set it back per clip.
-- **Vivid Landscape** — golden-ground / teal-sky pop for flat, dull scenery (dry-season
-  browns, hazy skies). Uses [IWLTBAP's free Sedona LUT](https://luts.iwltbap.com/free-lut-download-color-grade-sedona/)
-  at reduced mix if you've installed it in Resolve's LUT folder (recommended — the
-  orange/teal split needs a LUT); otherwise falls back to a strong LUT-free density +
-  contrast pop. Dial Density / LUT Mix / Contrast back to taste.
-- **Vivid Landscape Smooth (PQ Decode)** — the same landscape recipe through the PQ
-  decode (sets Camera, like Cinematic Smooth). Smoother highlights and color on scenes
-  with bright skies and speculars.
+- **Desert Day** — for pale, washed-out mid-day scenery (dry-season browns, hazy skies):
+  warm pop, deeper teal-leaning skies, richer ground oranges, solid contrast. Uses the
+  **built-in PowerGrade Desert Day LUT** shipped inside the plugin — nothing to download.
+  Dial **LUT Mix** back to taste.
+- **Cinematic Landscape** — the creamy outdoor look: softly lifted shadows, an early
+  smooth highlight shoulder, enriched greens, low-chroma toe. Uses the **built-in
+  PowerGrade Cinematic Landscape LUT**. Dial **LUT Mix** back to taste.
+
+The built-in LUTs live at `PowerGrade.ofx.bundle/Contents/Resources/LUTs` and appear in
+the **Look LUT Group** dropdown as **PowerGrade (built-in)** — you can use them directly
+at any mix, on any machine the plugin is installed on.
 - **None / Reset Look** — returns the look params to neutral.
 
 **1 · Input Transform**
