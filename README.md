@@ -69,6 +69,13 @@ or Output Encode, and every slider stays live to tweak per clip):
 The built-in LUTs live at `PowerGrade.ofx.bundle/Contents/Resources/LUTs` and appear in
 the **Look LUT Group** dropdown as **PowerGrade (built-in)** — you can use them directly
 at any mix, on any machine the plugin is installed on.
+
+## Creating built-in looks
+
+The shipped looks are generated, not hand-painted: each one is a small set of tunable
+numbers in [luts/generate_luts.py](luts/generate_luts.py). The full authoring process —
+design constraints, every parameter, and the step-by-step for adding a new look and
+preset — is documented in [docs/CREATING-LUTS.md](docs/CREATING-LUTS.md).
 - **None / Reset Look** — returns the look params to neutral.
 
 **1 · Input Transform**
