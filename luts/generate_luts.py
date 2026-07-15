@@ -69,6 +69,16 @@ def apply_look(r, g, b, p):
     r *= 1.0 + p["warm"]
     b *= 1.0 - p["warm"]
 
+    # 1b. optional luminance split-tone: warm(+)/cool(-) bias applied separately to
+    #     shadows and highlights (the teal-and-orange machinery). Masks overlap gently.
+    sp = p.get("split")
+    if sp:
+        lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        w = sp.get("shadows", 0.0) * (1.0 - smoothstep(0.15, 0.55, lum)) \
+          + sp.get("highlights", 0.0) * smoothstep(0.45, 0.85, lum)
+        r *= 1.0 + w
+        b *= 1.0 - w
+
     # 2. tone per channel: toe lift -> S-curve contrast -> highlight shoulder.
     #    Per-channel on purpose: bright saturated sources drift toward white.
     out = []
@@ -138,6 +148,63 @@ LOOKS = {
         hue_arcs=[
             dict(lo=70,  hi=160, sat=0.20, shift=-4.0),   # foliage: richer, slightly emerald
             dict(lo=195, hi=250, sat=0.08),               # skies: a touch more presence
+        ],
+    ),
+    # Low-sun amber glow: strong warmth into gently magenta-warm shadows, early soft
+    # shoulder, golds enriched, skies calmed. Romantic, glowy — nothing like the
+    # punchy Desert Day.
+    "PowerGrade Golden Hour": dict(
+        warm=0.055,
+        toe=0.02,
+        contrast=0.10,
+        shoulder=0.40,
+        sat=1.10,
+        sat_toe=0.15,
+        split=dict(shadows=0.02, highlights=0.05),
+        hue_arcs=[
+            dict(lo=20,  hi=70,  sat=0.15),            # golds richer
+            dict(lo=195, hi=255, sat=-0.10),           # skies recede
+        ],
+    ),
+    # The blockbuster split: teal shadows vs warm highlights/skin, solid contrast,
+    # pinned blacks. Punchy and modern.
+    "PowerGrade Teal Orange": dict(
+        warm=0.0,
+        toe=0.0,
+        contrast=0.30,
+        shoulder=0.20,
+        sat=1.12,
+        sat_toe=0.12,
+        split=dict(shadows=-0.07, highlights=0.045),
+        hue_arcs=[
+            dict(lo=10,  hi=50,  sat=0.12),            # skin/orange presence
+            dict(lo=170, hi=230, sat=0.10),            # teal enrich
+        ],
+    ),
+    # Skip-bleach: silver and gritty — strong contrast, heavily muted color, faintly
+    # cool cast, controlled whites. The desaturated corner of the look-space.
+    "PowerGrade Silver Bleach": dict(
+        warm=-0.01,
+        toe=0.0,
+        contrast=0.45,
+        shoulder=0.30,
+        sat=0.60,
+        sat_toe=0.25,
+        hue_arcs=[],
+    ),
+    # Cool low-key mood: blue cast deepening in the shadows, muted warms, blues kept
+    # alive. Night exteriors, thrillers, blue-hour city.
+    "PowerGrade Midnight Blue": dict(
+        warm=-0.045,
+        toe=0.0,
+        contrast=0.25,
+        shoulder=0.35,
+        sat=0.85,
+        sat_toe=0.30,
+        split=dict(shadows=-0.03, highlights=0.0),
+        hue_arcs=[
+            dict(lo=200, hi=260, sat=0.15),            # blues stay alive
+            dict(lo=20,  hi=60,  sat=-0.10),           # warms muted
         ],
     ),
 }

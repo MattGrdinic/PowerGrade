@@ -49,26 +49,34 @@ onto a node. The controls appear top-to-bottom in the order they're applied.
 
 ## The controls
 
-**0 · Preset** — one-click starting points for a look (they never touch Camera, RAW,
-or Output Encode, and every slider stays live to tweak per clip):
-- **Cinematic Film (Kodak 2383)** — cools the highlights against warm practicals, lifts
-  shadows off video-black, pulls highlights down so they roll off into the Kodak 2383
-  print stock, adds mild density. A fast path from "video" to "graded film".
-- **Cinematic Smooth (PQ Decode)** — the same recipe, but *deliberately decodes the clip
-  as Rec.2100 PQ* (this is the one preset that sets Camera). The PQ curve's compressive
-  top end gives a near-perfect built-in highlight rolloff, smooth color, and rich
-  texture on log footage. Leaving the preset does not restore Camera — set it back per clip.
-- **Desert Day** — for pale, washed-out mid-day scenery (dry-season browns, hazy skies):
-  warm pop, deeper teal-leaning skies, richer ground oranges, solid contrast. Uses the
-  **built-in PowerGrade Desert Day LUT** shipped inside the plugin — nothing to download.
-  Dial **LUT Mix** back to taste.
-- **Cinematic Landscape** — the creamy outdoor look: softly lifted shadows, an early
-  smooth highlight shoulder, enriched greens, low-chroma toe. Uses the **built-in
-  PowerGrade Cinematic Landscape LUT**. Dial **LUT Mix** back to taste.
+**0 · Preset** — one-click starting points on the happy path. Every preset sets
+**Camera → Rec.2100 PQ** (the smooth decode, also the plugin default) plus Balance,
+Density, Lift/Gamma/Gain, LUT and Trim; every slider stays live to tweak per clip. RAW
+and Output Encode are never touched. The name tells you which LUT path it drives:
+- **Cinematic Film Emulation (Kodak 2383 D60)** — cooled highlights against warm
+  practicals, shadows lifted off video-black, gain pulled so highlights roll into the
+  print stock, brightness brought back after. Swap stocks in **Film Look LUT**.
+- **Cinematic Film Emulation (Fujifilm 3513DI D60)** — the same recipe on Fuji's print
+  stock (falls back to Kodak if that stock isn't in Resolve's Film Looks).
+- **Custom LUT – Cinematic Landscape** — the built-in creamy outdoor look through the PQ
+  decode, with a gentle cool offset. Swap looks in **Look LUT** (six built-ins ship).
+- **Custom LUT – Teal Orange** — the built-in blockbuster split, same treatment.
+- **None / Reset Look** — returns the look params to neutral (Camera stays put).
 
 The built-in LUTs live at `PowerGrade.ofx.bundle/Contents/Resources/LUTs` and appear in
 the **Look LUT Group** dropdown as **PowerGrade (built-in)** — you can use them directly
-at any mix, on any machine the plugin is installed on.
+at any mix, on any machine the plugin is installed on. Six looks ship, each deliberately
+distinct so one of the defaults is likely close to what your footage wants (pick it,
+then trim with **LUT Mix** and the sliders):
+
+| Built-in look | Character |
+|---|---|
+| **Cinematic Landscape** | creamy outdoor: lifted soft shadows, smooth shoulder, enriched greens |
+| **Desert Day** | pale mid-day scenery → warm pop, deeper teal skies, rich ground oranges |
+| **Golden Hour** | amber low-sun glow: strong warmth, soft shoulder, rich golds, calmed skies |
+| **Teal Orange** | the blockbuster split — teal shadows vs. warm highlights/skin, punchy contrast |
+| **Silver Bleach** | skip-bleach: heavily muted color, strong contrast, silvery and gritty |
+| **Midnight Blue** | cool low-key mood: blue-cast shadows, muted warms, blues kept alive |
 
 ## Creating built-in looks
 
@@ -79,11 +87,13 @@ preset — is documented in [docs/CREATING-LUTS.md](docs/CREATING-LUTS.md).
 - **None / Reset Look** — returns the look params to neutral.
 
 **1 · Input Transform**
-- **Camera** — pick the source format. Decodes the log/gamut into the working space.
-  Supports **Blackmagic Gen 5 Film** (the default — Pocket 4K/6K, URSA, Pyxis clips left
-  at Blackmagic Design / Gen 5 Film), Blackmagic (DWG/DI), Sony S-Log3, ARRI LogC3/LogC4,
-  Canon Log3, RED Log3G10, DJI D-Log, Fuji F-Log2, Panasonic V-Log, and **Rec.2100 HLG / PQ**
-  for HDR clips.
+- **Camera** — how the clip is decoded into the working space. The default,
+  **Rec.2100 PQ**, is not a camera match: it's a deliberately compressive *smooth
+  decode* that flatters log footage (near-perfect highlight rolloff, smooth color, rich
+  texture) — the happy path the presets build on. For a colorimetric transform instead,
+  pick the real camera: Blackmagic Gen 5 Film (Pocket 4K/6K, URSA, Pyxis), Blackmagic
+  (DWG/DI), Sony S-Log3, ARRI LogC3/LogC4, Canon Log3, RED Log3G10, DJI D-Log,
+  Fuji F-Log2, Panasonic V-Log, or **Rec.2100 HLG / PQ** for genuine HDR clips.
 
 **2 · Balance** — white balance, in linear. *Open the Vectorscope while adjusting.*
 - **Offset Temp / Tint** — additive; shifts every tone's chroma **evenly**. Best for a

@@ -32,7 +32,8 @@ Python dict — edit, regenerate, rebuild, eyeball in Resolve, repeat.
 | `shoulder` | highlight soft clip — the same curve as the plugin's Highlight Rolloff, so looks stay consistent with that control |
 | `sat` | global saturation multiplier |
 | `sat_toe` | shadows below this value keep progressively less saturation (kills chroma noise in the toe, reads "creamy") |
-| `hue_arcs` | list of hue-selective tweaks: `lo`/`hi` in degrees (0=red, 120=green, 240=blue; wraps), optional `sat` (added saturation) and `shift` (hue rotation in degrees), feathered 15° per side |
+| `hue_arcs` | list of hue-selective tweaks: `lo`/`hi` in degrees (0=red, 120=green, 240=blue; wraps), optional `sat` (added saturation, may be negative) and `shift` (hue rotation in degrees), feathered 15° per side |
+| `split` | optional luminance split-tone: `dict(shadows=…, highlights=…)`, each a warm(+)/cool(−) bias applied through soft luminance masks — the teal-and-orange machinery |
 
 Tone ops run **per channel** on purpose: bright saturated sources drift toward white
 instead of holding full chroma — the film-like behavior we want everywhere.

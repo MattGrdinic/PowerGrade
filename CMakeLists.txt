@@ -73,6 +73,10 @@ add_custom_command(TARGET PowerGrade POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy
           "${CMAKE_SOURCE_DIR}/luts/PowerGrade Desert Day.cube"
           "${CMAKE_SOURCE_DIR}/luts/PowerGrade Cinematic Landscape.cube"
+          "${CMAKE_SOURCE_DIR}/luts/PowerGrade Golden Hour.cube"
+          "${CMAKE_SOURCE_DIR}/luts/PowerGrade Teal Orange.cube"
+          "${CMAKE_SOURCE_DIR}/luts/PowerGrade Silver Bleach.cube"
+          "${CMAKE_SOURCE_DIR}/luts/PowerGrade Midnight Blue.cube"
           "${BUNDLE}/Contents/Resources/LUTs/"
   COMMENT "Assembling PowerGrade.ofx.bundle")
 
