@@ -28,8 +28,13 @@ endif
 
 BINDIR := $(BUNDLE)/Contents/$(BUNDLE_ARCH)
 
-.PHONY: all install clean test
-all: $(BINDIR)/PowerGrade.ofx $(BUNDLE)/Contents/Info.plist
+.PHONY: all install clean test bundle-luts
+all: $(BINDIR)/PowerGrade.ofx $(BUNDLE)/Contents/Info.plist bundle-luts
+
+# Built-in look LUTs ship inside the bundle (regenerate with luts/generate_luts.py).
+bundle-luts:
+	@mkdir -p "$(BUNDLE)/Contents/Resources/LUTs"
+	@cp -f luts/*.cube "$(BUNDLE)/Contents/Resources/LUTs/"
 
 test: | $(BUILD)
 	$(CXX) -std=c++17 -O2 test/pipeline_test.cpp -o $(BUILD)/pipeline_test

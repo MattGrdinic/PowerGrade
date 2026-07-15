@@ -13,6 +13,13 @@
 #include <algorithm>
 #include <map>
 #include <filesystem>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX            // keep windows.h from defining min/max macros (breaks std::min/max in OFX headers)
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "ofxsImageEffect.h"
 #include "ofxsMultiThread.h"
@@ -64,21 +71,44 @@ static void scanDir(const std::string& root, LutList& out)
     std::sort(out.begin(), out.end());
 }
 
-// Index of the preferred film print stock in s_FilmLuts: Kodak 2383 D60, Rec.709 variant
-// preferred (the film path outputs Rec.709). 0 if not found. Used for the filmLut default
-// and by the Cinematic Film preset.
-static int kodak2383Index()
+// Index of a film print stock in s_FilmLuts by case-insensitive name fragment, preferring
+// the Rec.709 variant (the film path outputs Rec.709). -1 if absent. Used by the Film
+// Emulation presets; kodak2383Index() wraps it for the filmLut describe-time default.
+static int filmLutIndex(const char* fragment)
 {
-    int idx = 0;
+    int idx = -1;
     for (size_t i = 0; i < s_FilmLuts.size(); ++i) {
         std::string n = s_FilmLuts[i].first;
         std::transform(n.begin(), n.end(), n.begin(), ::tolower);
-        if (n.find("kodak 2383 d60") != std::string::npos) {
+        if (n.find(fragment) != std::string::npos) {
             idx = (int)i;
             if (n.find("rec709") != std::string::npos) break;   // prefer Rec.709 variant
         }
     }
     return idx;
+}
+static int kodak2383Index() { int i = filmLutIndex("kodak 2383 d60"); return i < 0 ? 0 : i; }
+
+// Directory of the LUTs we ship inside the bundle (<bundle>/Contents/Resources/LUTs),
+// resolved from the plugin binary's own path so it works wherever the bundle lives.
+static std::string bundleLutDir()
+{
+    std::string bin;
+#ifdef _WIN32
+    HMODULE hm = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)&bundleLutDir, &hm)) {
+        char path[MAX_PATH];
+        if (GetModuleFileNameA(hm, path, MAX_PATH)) bin = path;
+    }
+#else
+    Dl_info info;
+    if (dladdr((void*)&bundleLutDir, &info) && info.dli_fname) bin = info.dli_fname;
+#endif
+    if (bin.empty()) return {};
+    namespace fs = std::filesystem;
+    fs::path contents = fs::path(bin).parent_path().parent_path();   // Contents/<arch>/PowerGrade.ofx -> Contents
+    return (contents / "Resources" / "LUTs").string();
 }
 
 // Find a Look LUT by case-insensitive name fragment across all groups. Fills (group, lut)
@@ -104,6 +134,12 @@ static void scanLuts()
 
     std::string filmDir = std::string(kFilmLutDir) + "/Film Looks";
     scanDir(fs::exists(filmDir, ec) ? filmDir : kFilmLutDir, s_FilmLuts);
+
+    // LUTs shipped inside the bundle — surfaced as the first Look group so the
+    // presets (and users) get them with zero external installs.
+    LutList builtin;
+    scanDir(bundleLutDir(), builtin);
+    if (!builtin.empty()) s_LookGroups.emplace_back("PowerGrade (built-in)", builtin);
 
     // Group the whole master folder by top-level subfolder (files in root -> "General").
     std::map<std::string, LutList> groups;
@@ -348,35 +384,26 @@ void PowerGrade::populateLookLut()
         m_LookLut->appendOption("(none)");
 }
 
-// Presets are one-shot starting points: they set the LOOK params (Balance, Density,
-// Lift/Gamma/Gain, LUT, Trim) and leave the per-clip ones (Camera, RAW, Output Encode)
-// alone. "None / Reset Look" returns those look params to neutral.
+// Presets are one-shot starting points down the "happy path": EVERY preset sets Camera
+// to Rec.2100 PQ — the deliberately compressive smooth decode the plugin now defaults
+// to (near-perfect highlight rolloff, smooth color, rich texture on log footage) — plus
+// Balance, Density, Lift/Gamma/Gain, LUT and Trim. RAW and Output Encode are never
+// touched. "None / Reset Look" returns the look params to neutral (Camera stays put).
+// Names call out which LUT path a preset drives: Film Emulation = Resolve's print-film
+// LUTs (Cineon path, swap stocks in Film Look LUT); Custom LUT = PowerGrade's built-in
+// looks (Rec.709 path, swap looks in Look LUT).
 void PowerGrade::applyPreset(int p)
 {
-    if (p == 1) {           // Cinematic Film: cool the highlights (the teal-vs-practicals
-                            // split), lift shadows off video-black, pull gain hard so
-                            // highlights roll off into the Kodak 2383 print curve, then bring
-                            // brightness back post-LUT (values tuned on footage in Resolve)
-        m_OffTemp->setValue(-0.02);
-        m_OffTint->setValue(0.01);
-        m_Temp->setValue(-0.22);
-        m_Tint->setValue(0.09);
-        m_Density->setValue(0.10);
-        m_Lift->setValue(0.11);
-        m_Gamma->setValue(1.0);
-        m_Gain->setValue(0.80);
-        m_LutMode->setValue(2);
-        m_FilmLut->setValue(kodak2383Index());
-        m_LutMix->setValue(1.0);
-        m_PostExp->setValue(0.55);
-        m_PostCon->setValue(1.0);
-        m_Rolloff->setValue(0.5);   // keep bright practicals from clipping neon after the +0.55 push
-    } else if (p == 2) {    // Cinematic Smooth: the Cinematic Film recipe, but decode the clip
-                            // as Rec.2100 PQ on purpose — the ONE preset that sets Camera. PQ's
-                            // compressive inverse-EOTF gives a near-perfect built-in highlight
-                            // rolloff, smooth color and rich texture on log footage (discovered
-                            // on Gen 5 clips via the index renumber, kept as a look). Rolloff
-                            // stays 0 — the PQ curve is already the shoulder.
+    if (p == 1 || p == 2) { // Cinematic Film Emulation — 1: Kodak 2383 D60, 2: Fujifilm
+                            // 3513DI D60. Cool highlights vs warm practicals, lift shadows
+                            // off video-black, pull gain hard so highlights roll off into
+                            // the print curve, bring brightness back post-LUT (values tuned
+                            // on footage). Rolloff stays 0 — PQ is already the shoulder.
+        // Fuji 3513DI ships only as DCI-P3 variants in Resolve's Film Looks (the file is
+        // "DCI-P3 Fujifilm 3513DI D60.cube") — match the D60 name exactly so the
+        // prefer-Rec709 tie-break can't drift to D55/D65.
+        int film = filmLutIndex(p == 2 ? "fujifilm 3513di d60" : "kodak 2383 d60");
+        if (film < 0) film = kodak2383Index();          // stock absent -> Kodak default
         m_Camera->setValue(11);     // Rec.2100 PQ / ST.2084
         m_OffTemp->setValue(-0.02);
         m_OffTint->setValue(0.01);
@@ -387,41 +414,39 @@ void PowerGrade::applyPreset(int p)
         m_Gamma->setValue(1.0);
         m_Gain->setValue(0.80);
         m_LutMode->setValue(2);
-        m_FilmLut->setValue(kodak2383Index());
+        m_FilmLut->setValue(film);
         m_LutMix->setValue(1.0);
         m_PostExp->setValue(0.55);
         m_PostCon->setValue(1.0);
         m_Rolloff->setValue(0.0);
-    } else if (p == 3 || p == 4) {  // Vivid Landscape: aims at IWLTBAP's free "Sedona" look
-                            // (golden grounds / teal skies). That hue split needs a LUT, so when
-                            // the Sedona Look LUT is installed use it at reduced mix (tuned on
-                            // footage); otherwise fall back to a punchy LUT-free density +
-                            // contrast pop — dial back with Density and Trim Contrast.
-                            // p==4 = the Smooth variant: same recipe but decode as Rec.2100 PQ
-                            // (see Cinematic Smooth above for why the "wrong" decode is a look).
-        if (p == 4) m_Camera->setValue(11);   // Rec.2100 PQ / ST.2084
+    } else if (p == 3 || p == 4) {  // Custom LUT — 3: built-in Cinematic Landscape,
+                            // 4: built-in Teal Orange, through the PQ decode with the
+                            // user-validated cool offset (-0.14, the "happy medium").
+                            // Swap looks in the Look LUT dropdown below.
         int gi = 0, li = 0;
-        const bool sedona = findLookLut("sedona - log", gi, li) || findLookLut("sedona", gi, li);
-        m_OffTemp->setValue(0.0);
+        const bool lut = findLookLut(p == 3 ? "powergrade cinematic landscape"
+                                            : "powergrade teal orange", gi, li);
+        m_Camera->setValue(11);     // Rec.2100 PQ / ST.2084
+        m_OffTemp->setValue(-0.14);
         m_OffTint->setValue(0.0);
         m_Temp->setValue(0.0);
         m_Tint->setValue(0.0);
-        m_Density->setValue(sedona ? 0.0 : 0.45);
-        m_Lift->setValue(sedona ? 0.0 : -0.03);
-        m_Gamma->setValue(sedona ? 1.0 : 0.94);
-        m_Gain->setValue(sedona ? 1.0 : 1.08);
-        if (sedona) {
+        m_Density->setValue(0.0);
+        m_Lift->setValue(0.0);
+        m_Gamma->setValue(1.0);
+        m_Gain->setValue(1.0);
+        if (lut) {
             m_LookGroup->setValue(gi);
             populateLookLut();
             m_LookLut->setValue(li);
             m_LutMode->setValue(1);
-            m_LutMix->setValue(0.54);
-        } else {
+            m_LutMix->setValue(1.0);
+        } else {                    // bundled LUT missing (shouldn't happen) -> no LUT
             m_LutMode->setValue(0);
             m_LutMix->setValue(1.0);
         }
-        m_PostExp->setValue(sedona ? 0.0 : 0.10);
-        m_PostCon->setValue(sedona ? 1.0 : 1.18);
+        m_PostExp->setValue(0.0);
+        m_PostCon->setValue(1.0);
         m_Rolloff->setValue(0.0);
     } else {                // None / Reset Look
         m_OffTemp->setValue(0.0);
@@ -597,12 +622,12 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gPreset->setLabels("0  Preset", "0  Preset", "0  Preset");
     ChoiceParamDescriptor* preset = p_Desc.defineChoiceParam("preset");
     preset->setLabels("Preset", "Preset", "Preset");
-    preset->setHint("A starting point, not a lock: picking one sets Balance, Density, Lift/Gamma/Gain, the LUT and Trim, and every slider stays live to tweak per clip. RAW and Output Encode are never touched. None / Reset Look returns the look params to neutral. Cinematic Smooth is the ONE preset that also sets Camera: it deliberately decodes the clip as Rec.2100 PQ, whose compressive curve gives a near-perfect highlight rolloff, smooth color and rich texture (set Camera back yourself when leaving it). Vivid Landscape uses IWLTBAP's free Sedona LUT (luts.iwltbap.com) at reduced mix when it's installed in Resolve's LUT folder; without it, a LUT-free density/contrast pop.");
+    preset->setHint("One-click starting points on the happy path: every preset sets Camera to Rec.2100 PQ (the smooth decode, also the default) plus Balance, Density, Lift/Gamma/Gain, LUT and Trim — every slider stays live to tweak per clip; RAW and Output Encode are never touched. Film Emulation presets drive Resolve's print-film stocks (swap in Film Look LUT); Custom LUT presets drive PowerGrade's built-in looks, shipped inside the plugin (swap in Look LUT; six looks available). Trim any LUT with LUT Mix. None / Reset Look returns the look params to neutral (Camera stays put).");
     preset->appendOption("None / Reset Look");
-    preset->appendOption("Cinematic Film (Kodak 2383)");
-    preset->appendOption("Cinematic Smooth (PQ Decode)");
-    preset->appendOption("Vivid Landscape");
-    preset->appendOption("Vivid Landscape Smooth (PQ Decode)");
+    preset->appendOption("Cinematic Film Emulation (Kodak 2383 D60)");
+    preset->appendOption("Cinematic Film Emulation (Fujifilm 3513DI D60)");
+    preset->appendOption("Custom LUT - Cinematic Landscape");
+    preset->appendOption("Custom LUT - Teal Orange");
     preset->setDefault(0);
     preset->setParent(*gPreset);
     page->addChild(*preset);
@@ -612,7 +637,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     gInput->setLabels("1  Input Transform", "1  Input Transform", "1  Input Transform");
     ChoiceParamDescriptor* cam = p_Desc.defineChoiceParam("camera");
     cam->setLabels("Camera", "Camera", "Camera");
-    cam->setHint("Source camera log/gamut. Decodes to DaVinci Wide Gamut linear working space (matches the CST node). Blackmagic Gen 5 Film (the default) is what Pocket/URSA/Pyxis clips are when left at camera defaults; Blackmagic (DWG/DI) is for clips already in DaVinci Wide Gamut / Intermediate.");
+    cam->setHint("Source camera log/gamut, decoded to DaVinci Wide Gamut linear working space. The default, Rec.2100 PQ, is NOT a camera match: it's a deliberately compressive smooth decode that flatters log footage (near-perfect highlight rolloff, smooth color) — the happy path all presets build on. For a colorimetric starting point instead, pick the real camera: e.g. Blackmagic Gen 5 Film for Pocket/URSA/Pyxis clips, Blackmagic (DWG/DI) for clips already in DaVinci Wide Gamut / Intermediate.");
     cam->appendOption("Blackmagic Gen 5 Film");
     cam->appendOption("Blackmagic (DWG/DI)");
     cam->appendOption("Sony S-Log3");
@@ -625,7 +650,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     cam->appendOption("Panasonic V-Log");
     cam->appendOption("Rec.2100 HLG (HDR)");
     cam->appendOption("Rec.2100 PQ / ST.2084 (HDR)");
-    cam->setDefault(0);
+    cam->setDefault(11);    // Rec.2100 PQ — the creative "smooth decode" default (see hint)
     cam->setParent(*gInput);
     page->addChild(*cam);
 
@@ -752,7 +777,7 @@ void PowerGradeFactory::describeInContext(OFX::ImageEffectDescriptor& p_Desc, OF
     helpLine("help2", "Timeline Color Space", "Rec.709 Gamma 2.4 (matches the default Output Encode); Rec.709 (Scene) for scene-referred.");
     helpLine("help3", "Output Color Space", "Same as Timeline");
     helpLine("help4", "Clips", "Leave at camera raw/log defaults - no input CST or LUT before this node.");
-    helpLine("help5", "Camera control", "Set it to match the source footage; this node does the input transform.");
+    helpLine("help5", "Camera control", "Default Rec.2100 PQ = the creative smooth decode the presets use. Pick your camera's real log for a colorimetric transform instead.");
     helpLine("help6", "Output Encode", "Match the Timeline Color Space above: Rec.709 (Gamma 2.4) (default) or Rec.709 (Scene).");
     helpLine("help7", "Monitor", "Calibrate it and have Resolve show your delivery space; check the grade on a second screen.");
 }
