@@ -397,7 +397,10 @@ void PowerGrade::applyPreset(int p)
                             // off video-black, pull gain hard so highlights roll off into
                             // the print curve, bring brightness back post-LUT (values tuned
                             // on footage). Rolloff stays 0 — PQ is already the shoulder.
-        int film = filmLutIndex(p == 2 ? "fujifilm 3513" : "kodak 2383 d60");
+        // Fuji 3513DI ships only as DCI-P3 variants in Resolve's Film Looks (the file is
+        // "DCI-P3 Fujifilm 3513DI D60.cube") — match the D60 name exactly so the
+        // prefer-Rec709 tie-break can't drift to D55/D65.
+        int film = filmLutIndex(p == 2 ? "fujifilm 3513di d60" : "kodak 2383 d60");
         if (film < 0) film = kodak2383Index();          // stock absent -> Kodak default
         m_Camera->setValue(11);     // Rec.2100 PQ / ST.2084
         m_OffTemp->setValue(-0.02);
