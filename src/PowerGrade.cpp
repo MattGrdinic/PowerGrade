@@ -14,6 +14,8 @@
 #include <map>
 #include <filesystem>
 #ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX            // keep windows.h from defining min/max macros (breaks std::min/max in OFX headers)
 #include <windows.h>
 #else
 #include <dlfcn.h>
