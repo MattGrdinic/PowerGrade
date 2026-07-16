@@ -6,6 +6,7 @@
 #include "CubeLUT.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -41,7 +42,20 @@
 #define kParamCount 13 // temp,tint,density,lift,gamma,gain,offTemp,offTint,postExp,postCon,rawExp,rawTemp,rolloff
 
 // Folder scanned for built-in / film-look LUTs (Resolve's default LUT install).
-#define kFilmLutDir "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
+// Resolve puts this somewhere different on every platform, so it has to be resolved at
+// runtime: a single hardcoded POSIX path just yields an empty Film Look list off-macOS,
+// with no error — the Film Emulation presets then quietly render without their print LUT.
+static std::string filmLutDir()
+{
+#ifdef _WIN32
+    const char* pd = std::getenv("PROGRAMDATA");
+    return std::string(pd ? pd : "C:\\ProgramData") + "\\Blackmagic Design\\DaVinci Resolve\\Support\\LUT";
+#elif defined(__APPLE__)
+    return "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT";
+#else
+    return "/opt/resolve/LUT";
+#endif
+}
 
 // LUT lists, built once at describe.
 typedef std::vector<std::pair<std::string, std::string>> LutList;   // (label, absolute path)
@@ -132,8 +146,9 @@ static void scanLuts()
     namespace fs = std::filesystem;
     std::error_code ec;
 
-    std::string filmDir = std::string(kFilmLutDir) + "/Film Looks";
-    scanDir(fs::exists(filmDir, ec) ? filmDir : kFilmLutDir, s_FilmLuts);
+    const std::string lutRoot = filmLutDir();
+    const std::string filmDir = (fs::path(lutRoot) / "Film Looks").string();
+    scanDir(fs::exists(filmDir, ec) ? filmDir : lutRoot, s_FilmLuts);
 
     // LUTs shipped inside the bundle — surfaced as the first Look group so the
     // presets (and users) get them with zero external installs.
@@ -143,8 +158,8 @@ static void scanLuts()
 
     // Group the whole master folder by top-level subfolder (files in root -> "General").
     std::map<std::string, LutList> groups;
-    if (fs::exists(kFilmLutDir, ec)) {
-        for (fs::recursive_directory_iterator it(kFilmLutDir, fs::directory_options::skip_permission_denied, ec), end;
+    if (fs::exists(lutRoot, ec)) {
+        for (fs::recursive_directory_iterator it(lutRoot, fs::directory_options::skip_permission_denied, ec), end;
              it != end; it.increment(ec))
         {
             if (ec) break;
@@ -154,7 +169,7 @@ static void scanLuts()
             std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
             if (ext != ".cube") continue;
             std::error_code ec2;
-            fs::path rel = fs::relative(p, kFilmLutDir, ec2);
+            fs::path rel = fs::relative(p, lutRoot, ec2);
             std::string group = rel.has_parent_path() ? rel.begin()->string() : "General";
             groups[group].emplace_back(p.stem().string(), p.string());
         }
