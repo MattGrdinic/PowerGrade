@@ -60,7 +60,9 @@ and Output Encode are never touched. The name tells you which LUT path it drives
   stock (falls back to Kodak if that stock isn't in Resolve's Film Looks).
 - **Custom LUT – Cinematic Landscape** — the built-in creamy outdoor look through the PQ
   decode, with a gentle cool offset. Swap looks in **Look LUT** (six built-ins ship).
-- **Custom LUT – Teal Orange** — the built-in blockbuster split, same treatment.
+- **Custom LUT – Teal Orange** — the built-in blockbuster split with its own on-footage
+  recipe: density eased so the split-tone doesn't oversaturate, shadows lifted and the
+  image brightened into the look.
 - **None / Reset Look** — returns the look params to neutral (Camera stays put).
 
 The built-in LUTs live at `PowerGrade.ofx.bundle/Contents/Resources/LUTs` and appear in
