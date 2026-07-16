@@ -597,7 +597,14 @@ void PowerGradeFactory::describe(OFX::ImageEffectDescriptor& p_Desc)
     p_Desc.setRenderTwiceAlways(false);
     p_Desc.setSupportsMultipleClipPARs(kSupportsMultipleClipPARs);
 
+    // Every backend advertised here must be one we actually compiled: the host picks a
+    // GPU path from these flags and there is no CPU fallback once it does (see
+    // ofxsProcessing.h process()). Claiming OpenCL while processImagesOpenCL() was
+    // #ifdef'd out to an empty function meant AMD/Intel GPUs got an unwritten
+    // destination buffer — a black frame, not a slow one.
+#ifdef OFX_SUPPORTS_OPENCLRENDER
     p_Desc.setSupportsOpenCLBuffersRender(true);
+#endif
 #ifdef OFX_SUPPORTS_CUDARENDER
     p_Desc.setSupportsCudaRender(true);
     p_Desc.setSupportsCudaStream(true);

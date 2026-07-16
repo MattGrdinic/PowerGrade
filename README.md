@@ -232,8 +232,9 @@ cmake --build build-cmake --config Release
 ```
 
 **GPU backends:** Metal + CPU are validated on Apple Silicon; CUDA is validated on an
-RTX 5090. OpenCL is ported from the same math but is **best-effort / not yet
-hardware-validated** — see CI and the tests below.
+RTX 5090. OpenCL — the path AMD and Intel GPUs use — has been checked against the CPU
+pipeline on both NVIDIA and AMD hardware (worst deviation well under one 8-bit code
+value), but not yet inside Resolve on an AMD card.
 
 CUDA needs `-DBUILD_CUDA=ON` **and** a CUDA 13.x toolkit (12.x emits no Blackwell/sm_120
 code). Windows CI ships it on by default. Without it the plugin still loads and renders —

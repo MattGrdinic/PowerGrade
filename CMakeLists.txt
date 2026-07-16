@@ -60,7 +60,12 @@ endif()
 add_library(PowerGrade MODULE ${PLUGIN_SRCS} ${SUPPORT_SRCS})
 target_include_directories(PowerGrade PRIVATE
   ${SDK}/include ${SDK}/Support/include ${SDK}/Support/Plugins/include src)
-target_compile_definitions(PowerGrade PRIVATE OFX_SUPPORTS_OPENGLRENDER)
+# OPENCL, not just OPENGL: the two are unrelated flags and the near-identical
+# names hid a real bug. OFX_SUPPORTS_OPENCLRENDER guards the body of
+# processImagesOpenCL(), so leaving it undefined compiles the OpenCL render to
+# an empty function while the plugin still advertises OpenCL support.
+# OpenCLKernel.cpp and OpenCL::OpenCL are always built, so this is unconditional.
+target_compile_definitions(PowerGrade PRIVATE OFX_SUPPORTS_OPENGLRENDER OFX_SUPPORTS_OPENCLRENDER)
 target_link_libraries(PowerGrade PRIVATE OpenCL::OpenCL)
 
 set_target_properties(PowerGrade PROPERTIES PREFIX "" SUFFIX ".ofx" OUTPUT_NAME "PowerGrade")

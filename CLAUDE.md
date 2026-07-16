@@ -185,7 +185,27 @@ d8ef1d8 went straight to main; user OK'd it that time, pre-release, but never ag
 - **Validated in Resolve:** Metal + CPU on the user's M3 Max, Rec.709 (Scene) / DaVinci YRGB project.
   CUDA perf on the user's Windows box (Ryzen + RTX 5090, 2026-07-16) — real-time; colour
   output not yet A/B'd against the Metal path.
-- **Not HW-validated:** OpenCL correctness (CI compiles/tests only).
+- **OpenCL:** kernel checked against `pg::process` on real HW (2026-07-16) on both an
+  RTX 5090 and an AMD gfx1036 iGPU, all 12 cameras x 6 encodes: worst deviation
+  ~1.7e-3 in display space (under half an 8-bit code value), which is float rounding, not
+  a mirror bug — see the Log3G10 note below. **Still not validated inside Resolve on an
+  AMD card** (no AMD dGPU here); the harness drives `RunOpenCLKernelBuffers` directly.
+- **Don't chase small GPU-vs-CPU deltas with an absolute tolerance.** Use relative, or the
+  wide-range cameras and enc=5 (Linear, values ~50-100) drown out everything else. Where
+  both vendors agree with each other but differ from the CPU, suspect precision, not math:
+  e.g. camera 6 (RED Log3G10) decodes `(pow(10,x/0.224282)-1)/155.975327 - 0.01`, and at
+  small x that `-1` cancels two near-equal numbers, so host `powf` (more internal
+  precision) and OpenCL single-precision `pow` legitimately diverge.
+- **Advertise only backends that are actually compiled.** `describeInContext` flags are
+  what the host picks a GPU path from, and once it picks there is **no CPU fallback**
+  (`ofxsProcessing.h` `process()`). Until 2026-07-16 the plugin called
+  `setSupportsOpenCLBuffersRender(true)` unconditionally while the body of
+  `processImagesOpenCL()` sat behind `OFX_SUPPORTS_OPENCLRENDER` — a symbol **nothing ever
+  defined** (the Makefile/CMake define the unrelated `OFX_SUPPORTS_OPENGL RENDER`; the
+  near-identical name is the trap). It compiled to an empty function, so any AMD/Intel GPU
+  — or anyone setting Resolve's GPU mode to OpenCL — got an unwritten destination buffer:
+  a black frame. macOS never hit it because Resolve drives Metal there. Each
+  `setSupports*Render` call is now behind the same `#ifdef` that guards its implementation.
 - **CUDA is a silent-fallback trap.** A plugin built without `-DBUILD_CUDA=ON`, or with a
   CUDA 12.x toolkit (tops out at sm_90, so nothing for Blackwell/sm_120), still loads and
   renders fine — Resolve just quietly renders the node on the CPU. That shipped once and
