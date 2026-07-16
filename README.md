@@ -231,6 +231,39 @@ cmake -S . -B build-cmake
 cmake --build build-cmake --config Release
 ```
 
+### Windows
+
+Needs Visual Studio 2022 (or its Build Tools) and a **CUDA 13.x** toolkit. The CUDA
+toolkit also supplies OpenCL, so vcpkg isn't required. If `cmake` isn't on your PATH, use
+the copy bundled with Visual Studio, as below.
+
+```powershell
+$cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+& $cmake -S . -B build-cuda -G "Visual Studio 17 2022" -A x64 -DBUILD_CUDA=ON
+& $cmake --build build-cuda --config Release      # -> build-cuda\PowerGrade.ofx.bundle
+```
+
+Install (**close Resolve first** — the plugin is locked while it runs):
+
+```powershell
+Copy-Item install\install-windows.bat build-cuda\
+```
+
+then right-click `build-cuda\install-windows.bat` → **Run as administrator**. It copies the
+bundle to `%CommonProgramFiles%\OFX\Plugins`. Restart Resolve → Color page → Effects →
+OpenFX → Power Grade.
+
+Confirm the GPU kernel actually shipped — a plugin built without it looks fine and just
+renders on the CPU:
+
+```powershell
+& "$env:CUDA_PATH\bin\cuobjdump.exe" --list-elf "$env:CommonProgramFiles\OFX\Plugins\PowerGrade.ofx.bundle\Contents\Win64\PowerGrade.ofx"
+```
+
+Expect a list of `sm_*` cubins covering your GPU (`sm_120` for Blackwell / RTX 50-series).
+`does not contain device code` means CUDA was left out and Resolve will fall back to the
+CPU.
+
 **GPU backends:** Metal + CPU are validated on Apple Silicon; CUDA is validated on an
 RTX 5090. OpenCL — the path AMD and Intel GPUs use — has been checked against the CPU
 pipeline on both NVIDIA and AMD hardware (worst deviation well under one 8-bit code
