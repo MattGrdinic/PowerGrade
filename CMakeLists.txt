@@ -43,6 +43,16 @@ else()
 endif()
 
 if(BUILD_CUDA)
+  # Forwarded to nvcc as -arch=all-major: SASS for every major arch the *toolkit*
+  # supports, plus PTX for the newest so a future GPU JITs rather than leaving
+  # Resolve to silently render this node on the CPU. Do not expand this to an
+  # explicit list from CMAKE_CUDA_ARCHITECTURES_ALL_MAJOR — that variable is
+  # baked into CMake, so it lags the toolkit (CMake 3.31 still lists the
+  # compute_50 that CUDA 13 removed, and stops at 90). Must be set before
+  # enable_language(CUDA), which initialises the target property.
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES all-major)
+  endif()
   enable_language(CUDA)
   list(APPEND PLUGIN_SRCS src/CudaKernel.cu)
 endif()
@@ -60,7 +70,9 @@ if(APPLE)
 endif()
 if(BUILD_CUDA)
   target_compile_definitions(PowerGrade PRIVATE OFX_SUPPORTS_CUDARENDER)
-  set_target_properties(PowerGrade PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  # Whole-program (not CUDA_SEPARABLE_COMPILATION): CudaKernel.cu is one TU with
+  # no cross-TU device calls, and the -rdc=true device-link that separable
+  # compilation forces would strip the fatbinary's PTX, costing forward compat.
 endif()
 
 # ---- assemble the .ofx.bundle next to the built module ----

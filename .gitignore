@@ -1,6 +1,7 @@
 # build artifacts
 build/
 build-cmake/
+build-cuda/
 *.o
 *.ofx
 *.ofx.bundle/

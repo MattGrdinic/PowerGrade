@@ -23,19 +23,44 @@ jobs:
         if: runner.os == 'Windows'
         run: vcpkg install opencl:x64-windows
 
+      # Must stay on CUDA 13.x: -arch=all-major only emits SASS for the archs the
+      # toolkit knows, and 12.x stops at sm_90 — a 12.x build ships no code for
+      # Blackwell (sm_120), leaving Resolve to render the node on the CPU.
+      - name: Install CUDA (Windows)
+        if: runner.os == 'Windows'
+        uses: Jimver/cuda-toolkit@v0.2.35
+        with:
+          cuda: '13.2.0'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart"]'
+
       - name: Configure (macOS)
         if: runner.os == 'macOS'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        run: cmake -S . -B build -DBUILD_CUDA=ON "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
 
       - name: Build
         run: cmake --build build --config Release
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+      # A CUDA-less plugin still loads and renders — Resolve just silently falls
+      # back to the CPU — so nothing above would fail. Assert the shipped bundle
+      # really carries device code, including Blackwell (sm_120).
+      - name: Verify CUDA kernel is in the bundle (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $ofx = "build\PowerGrade.ofx.bundle\Contents\Win64\PowerGrade.ofx"
+          $elf = & "$env:CUDA_PATH\bin\cuobjdump.exe" --list-elf $ofx
+          Write-Host $elf
+          if (-not ($elf | Select-String -Quiet 'sm_120')) {
+            Write-Error "No sm_120 device code in $ofx - Resolve would render on the CPU."
+            exit 1
+          }
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
