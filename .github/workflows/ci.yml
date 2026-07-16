@@ -23,32 +23,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install OpenCL (Windows)
-        if: runner.os == 'Windows'
-        run: vcpkg install opencl:x64-windows
-
+      # The full toolkit, deliberately: no sub-packages list. Trimming it to
+      # nvcc/cudart/visual_studio_integration left cuda_runtime.h without the
+      # include/crt headers it pulls in ("Cannot open include file:
+      # 'crt/host_config.h'"). The extra install minutes beat guessing which
+      # sub-package a header hides in.
+      #
       # Must stay on CUDA 13.x: -arch=all-major only emits SASS for the archs the
       # toolkit knows, and 12.x stops at sm_90 — a 12.x build ships no code for
       # Blackwell (sm_120), leaving Resolve to render the node on the CPU.
-      # visual_studio_integration is not optional: it installs the MSBuild
-      # BuildCustomizations/CUDA *.targets that CMake's enable_language(CUDA)
-      # needs under the Visual Studio generator. Without it, Configure dies with
-      # "No CUDA toolset found".
+      #
+      # This also supplies OpenCL (headers + OpenCL.lib), so there is no vcpkg
+      # step: vcpkg resolved to its *debug* OpenCL.lib in a Release build, and
+      # this matches the local setup the CUDA path was validated against.
       - name: Install CUDA (Windows)
         if: runner.os == 'Windows'
         uses: Jimver/cuda-toolkit@v0.2.35
         with:
           cuda: '13.2.0'
           method: 'network'
-          sub-packages: '["nvcc", "cudart", "visual_studio_integration"]'
 
       - name: Configure (macOS)
         if: runner.os == 'macOS'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
+      # No vcpkg toolchain: OpenCL comes from the CUDA toolkit installed above.
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build -DBUILD_CUDA=ON "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_CUDA=ON
 
       - name: Build
         run: cmake --build build --config Release
