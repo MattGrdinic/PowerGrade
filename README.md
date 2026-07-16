@@ -36,7 +36,7 @@ your clips. In **Project Settings → Color Management**:
 | Setting | Value |
 |---|---|
 | Color Science | **DaVinci YRGB** (not Color Managed / not ACES) |
-| Timeline Color Space | **Rec.709 Gamma 2.4** (matches the plugin's default Output Encode) — or **Rec.709 (Scene)** for a scene-referred timeline; set Output Encode to match |
+| Timeline Color Space | **Rec.709 Gamma 2.2** (matches the plugin's default Output Encode — the gamma web platforms like YouTube assume) — or **Rec.709 Gamma 2.4** for broadcast / **Rec.709 (Scene)** for a scene-referred timeline; set Output Encode to match. Why 2.2 is the default: [docs/GAMMA.md](docs/GAMMA.md) |
 | Output Color Space | Same as Timeline |
 
 Leave your clips at their **camera raw / log defaults** — don't put a CST or input LUT
@@ -111,9 +111,11 @@ preset — is documented in [docs/CREATING-LUTS.md](docs/CREATING-LUTS.md).
 
 **5 · Output**
 - **Output Encode** — match your Timeline Color Space. With the setup above, leave it on
-  **Rec.709 (Gamma 2.4)** (the default); use **Rec.709 (Scene)** for a scene-referred
-  timeline. (Also: Cineon Log, DaVinci Intermediate, Linear.) The Lift/Gamma/Gain wheels
-  grade in whichever Rec.709 curve you pick, so they read linearly on that timeline's scope.
+  **Rec.709 (Gamma 2.2)** (the default — what web/streaming delivery like YouTube assumes);
+  use **Rec.709 (Gamma 2.4)** for a broadcast/reference timeline or **Rec.709 (Scene)** for
+  a scene-referred timeline. (Also: Cineon Log, DaVinci Intermediate, Linear.) The
+  Lift/Gamma/Gain wheels grade in whichever Rec.709 curve you pick, so they read linearly
+  on that timeline's scope. The full gamma story is in [docs/GAMMA.md](docs/GAMMA.md).
 
 **6 · Look / Film LUT** — a LUT applied inside the node. The two paths are mutually
 exclusive (they use different transforms):
@@ -180,8 +182,8 @@ deliberate** — this is where most of the correctness lives:
 | 3 | **Balance** | linear (DWG) | gain = multiply, offset = additive; even vs. highlight-weighted |
 | 4 | **Density** | **DI-log** HSV | saturating in log enriches highlights instead of blowing them out |
 | 5 | gamut out | DWG → Rec.709 linear (or keep DWG for DI/Linear) | output primaries |
-| 6 | **Lift/Gamma/Gain** | **Rec.709 display curve** — Scene OETF *or* pure 2.4, **follows the output encode** | matches Resolve's timeline wheels; blacks stay pinned; lift clamped at white so superwhites aren't amplified |
-| 7 | output encode | Rec.709 Scene / Rec.709 Gamma 2.4 / Cineon / DI / linear | `encode()` |
+| 6 | **Lift/Gamma/Gain** | **Rec.709 display curve** — Scene OETF *or* pure 2.2/2.4, **follows the output encode** | matches Resolve's timeline wheels; blacks stay pinned; lift clamped at white so superwhites aren't amplified |
+| 7 | output encode | Rec.709 Scene / Rec.709 Gamma 2.2 / Rec.709 Gamma 2.4 / Cineon / DI / linear | `encode()` |
 | 8 | **LUT + mix** | output space | trilinear 3D-LUT sample, then lerp by mix (done in the processor / kernels) |
 | 9 | **Trim** | output (display) space | post-LUT exposure (stops) + contrast about 0.5 + per-channel highlight roll-off (display-referred only) |
 
@@ -255,6 +257,7 @@ release should represent a known-good `main`.
 **How to run it:**
 
 ```bash
+
 git checkout main && git pull          # be on the merged, green main
 git tag v0.1.0                         # semantic version, must start with "v"
 git push origin v0.1.0                 # this push is what triggers the release

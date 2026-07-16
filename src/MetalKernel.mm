@@ -93,21 +93,22 @@ inline float3 pg_hsv2rgb(float3 c){
 
 inline float pg_r709e(float L){ return (L<0.018f)?(4.5f*L):(1.099f*pg_pow(L,0.45f)-0.099f); }
 inline float pg_r709d(float V){ return (V<0.081f)?(V/4.5f):pg_pow((V+0.099f)/1.099f,1.0f/0.45f); }
-inline float pg_r709_24e(float L){ return pg_pow(L,1.0f/2.4f); }
-inline float pg_r709_24d(float V){ return pg_pow(V,2.4f); }
-inline float pg_lgg(float L, float gain, float lift, float gamma, int g24){
-    float v = g24 ? pg_r709_24e(L) : pg_r709e(L);
+inline float pg_r709ge(float L, float g){ return pg_pow(L,1.0f/g); }
+inline float pg_r709gd(float V, float g){ return pg_pow(V,g); }
+inline float pg_lgg(float L, float gain, float lift, float gamma, float dg){
+    float v = (dg>0.0f) ? pg_r709ge(L,dg) : pg_r709e(L);
     v=v*gain; v=v+lift*(1.0f-min(v,1.0f)); v=pg_pow(v,1.0f/gamma);
-    return g24 ? pg_r709_24d(v) : pg_r709d(v);
+    return (dg>0.0f) ? pg_r709gd(v,dg) : pg_r709d(v);
 }
 inline float pg_dienc(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); }
 inline float pg_didec(float x){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LC=0.02740668f; return (x>LC)?(exp2(x/C-B)-A):(x/M); }
 
 inline float pg_enc(int enc, float x){
     if(enc==0) return pg_r709e(x);
-    else if(enc==1) return pg_r709_24e(x);
-    else if(enc==2){ float code=685.0f+300.0f*log10(fmax(x,1e-4f)); return fmin(fmax(code/1023.0f,0.0f),1.0f); }
-    else if(enc==3){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); }
+    else if(enc==1) return pg_r709ge(x,2.2f);
+    else if(enc==2) return pg_r709ge(x,2.4f);
+    else if(enc==3){ float code=685.0f+300.0f*log10(fmax(x,1e-4f)); return fmin(fmax(code/1023.0f,0.0f),1.0f); }
+    else if(enc==4){ float A=0.0075f,B=7.0f,C=0.07329248f,M=10.44426855f,LIN=0.00262409f; return (x>LIN)?((log2(x+A)+B)*C):(x*M); }
     else return x;
 }
 
@@ -148,13 +149,13 @@ kernel void PowerGradeKernel(constant int& W [[buffer(11)]], constant int& H [[b
         w.x*=(1.0f+temp*0.20f); w.z*=(1.0f-temp*0.20f); w.y*=(1.0f+tint*0.20f);   // gain balance
         w.x+=offTemp*0.10f; w.z-=offTemp*0.10f; w.y+=offTint*0.10f;               // offset balance
         if(density!=0.0f){ float3 l=float3(pg_dienc(w.x),pg_dienc(w.y),pg_dienc(w.z)); float3 hsv=pg_rgb2hsv(l); hsv.y=fmin(fmax(hsv.y*(1.0f+density),0.0f),1.0f); l=pg_hsv2rgb(hsv); w=float3(pg_didec(l.x),pg_didec(l.y),pg_didec(l.z)); } // density in DI-log
-        float3 outc = (enc<=2) ? pg_XYZto709(pg_DWGtoXYZ(w)) : w;                 // output primaries (linear): 709 for Scene/2.4/Cineon
-        int g24 = (enc==1) ? 1 : 0;                                               // grade curve follows output (2.4 vs Scene OETF)
-        outc.x=pg_lgg(outc.x,gain,lift,gamma,g24); outc.y=pg_lgg(outc.y,gain,lift,gamma,g24); outc.z=pg_lgg(outc.z,gain,lift,gamma,g24); // LGG
+        float3 outc = (enc<=3) ? pg_XYZto709(pg_DWGtoXYZ(w)) : w;                 // output primaries (linear): 709 for Scene/2.2/2.4/Cineon
+        float dg = (enc==1) ? 2.2f : (enc==2) ? 2.4f : 0.0f;                      // grade curve follows output (pure gamma vs Scene OETF)
+        outc.x=pg_lgg(outc.x,gain,lift,gamma,dg); outc.y=pg_lgg(outc.y,gain,lift,gamma,dg); outc.z=pg_lgg(outc.z,gain,lift,gamma,dg); // LGG
         float3 e = float3(pg_enc(enc,outc.x), pg_enc(enc,outc.y), pg_enc(enc,outc.z));
         if(lutN>=2 && lutMix>0.0f){ float3 s=pg_sampleLUT(lut,lutN,e); e = e + (s-e)*lutMix; }  // LUT + mix
         float ex=exp2(P[8]); e = (e*ex - 0.5f)*P[9] + 0.5f;                                     // post-LUT trim (exposure, contrast)
-        if(P[12]>0.0f && (enc<=1 || (lutN>=2 && lutMix>0.0f))){ e.x=pg_softclip(e.x,P[12]); e.y=pg_softclip(e.y,P[12]); e.z=pg_softclip(e.z,P[12]); } // highlight roll-off (display-referred only)
+        if(P[12]>0.0f && (enc<=2 || (lutN>=2 && lutMix>0.0f))){ e.x=pg_softclip(e.x,P[12]); e.y=pg_softclip(e.y,P[12]); e.z=pg_softclip(e.z,P[12]); } // highlight roll-off (display-referred only)
         out[i]=e.x; out[i+1]=e.y; out[i+2]=e.z; out[i+3]=in[i+3];
     }
 }
