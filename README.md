@@ -36,7 +36,7 @@ your clips. In **Project Settings → Color Management**:
 | Setting | Value |
 |---|---|
 | Color Science | **DaVinci YRGB** (not Color Managed / not ACES) |
-| Timeline Color Space | **Rec.709 Gamma 2.2** (matches the plugin's default Output Encode — the gamma web platforms like YouTube assume) — or **Rec.709 Gamma 2.4** for broadcast / **Rec.709 (Scene)** for a scene-referred timeline; set Output Encode to match. Why 2.2 is the default: [docs/GAMMA.md](docs/GAMMA.md) |
+| Timeline Color Space | **Rec.709 Gamma 2.2** (matches the plugin's default Output Encode — the gamma web platforms like YouTube assume) — or **Rec.709 Gamma 2.4** for broadcast / **Rec.709 (Scene)** for a scene-referred timeline; set Output Encode to match. How gamma works and how to choose: [docs/GAMMA.md](docs/GAMMA.md) |
 | Output Color Space | Same as Timeline |
 
 Leave your clips at their **camera raw / log defaults** — don't put a CST or input LUT
@@ -115,7 +115,7 @@ preset — is documented in [docs/CREATING-LUTS.md](docs/CREATING-LUTS.md).
   use **Rec.709 (Gamma 2.4)** for a broadcast/reference timeline or **Rec.709 (Scene)** for
   a scene-referred timeline. (Also: Cineon Log, DaVinci Intermediate, Linear.) The
   Lift/Gamma/Gain wheels grade in whichever Rec.709 curve you pick, so they read linearly
-  on that timeline's scope. The full gamma story is in [docs/GAMMA.md](docs/GAMMA.md).
+  on that timeline's scope. How gamma works, end to end: [docs/GAMMA.md](docs/GAMMA.md).
 
 **6 · Look / Film LUT** — a LUT applied inside the node. The two paths are mutually
 exclusive (they use different transforms):
