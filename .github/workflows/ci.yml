@@ -15,7 +15,11 @@ jobs:
       matrix:
         include:
           - { os: macos-14,      name: macos }
-          - { os: windows-latest, name: windows }
+          # Pinned, not windows-latest: that moved to VS 2026 in June 2026, and a
+          # CUDA toolkit only accepts host MSVC versions it knows about (nvcc hard-
+          # errors otherwise). VS 2022 + CUDA 13.2 is the combination validated on
+          # real hardware. Revisit when CUDA officially supports the VS 2026 host.
+          - { os: windows-2022,  name: windows }
     steps:
       - uses: actions/checkout@v4
 
@@ -26,13 +30,17 @@ jobs:
       # Must stay on CUDA 13.x: -arch=all-major only emits SASS for the archs the
       # toolkit knows, and 12.x stops at sm_90 — a 12.x build ships no code for
       # Blackwell (sm_120), leaving Resolve to render the node on the CPU.
+      # visual_studio_integration is not optional: it installs the MSBuild
+      # BuildCustomizations/CUDA *.targets that CMake's enable_language(CUDA)
+      # needs under the Visual Studio generator. Without it, Configure dies with
+      # "No CUDA toolset found".
       - name: Install CUDA (Windows)
         if: runner.os == 'Windows'
         uses: Jimver/cuda-toolkit@v0.2.35
         with:
           cuda: '13.2.0'
           method: 'network'
-          sub-packages: '["nvcc", "cudart"]'
+          sub-packages: '["nvcc", "cudart", "visual_studio_integration"]'
 
       - name: Configure (macOS)
         if: runner.os == 'macOS'
