@@ -12,6 +12,13 @@ GPU (Metal/OpenCL/CUDA) with a CPU fallback. Repo: `github.com/MattGrdinic/Power
 both abandoned. DCTL can't do CST/`.cube` LUTs/multi-node; the Resolve scripting API
 can't set node params. OFX is the only path that does everything. Not going back.
 
+**Deep-dive explainers live in `docs/`** (how each subsystem works — keep them current
+when touching the matching code): `GAMMA.md` (transfer functions, grade curve, encodes) ·
+`CAMERAS.md` (input transforms, working space) · `BALANCE.md` (RAW WB + gain/offset
+balance) · `DENSITY.md` (HSV-in-DI-log saturation) · `LUTS.md` (discovery, parsing,
+sampling, built-ins) · `FILM-EMULATION.md` (Cineon → print-stock path + preset recipe) ·
+`CREATING-LUTS.md` (authoring new built-in looks).
+
 ## The golden rule
 `src/PowerGradePipeline.h` (namespace `pg`, CPU) is the **single source of truth** for all
 color math. The three GPU kernels **mirror it exactly**:
@@ -32,29 +39,34 @@ Per pixel, in `pg::process()`:
      after `to_XYZ`, closest to sensor). Blackbody(T) source white → D65; raise T = warmer.
      Identity at 6500 K. NOT byte-exact to the RAW tab (no sensor metadata reaches OFX), but a
      physically-real WB. `white_balance()` / `cct_to_xy()` (Kim et al. locus) helpers.
+     (Explainer: `docs/BALANCE.md`.)
 1. camera log → scene-linear (`decode_log`)
-2. camera gamut → XYZ → **DaVinci Wide Gamut linear** (working space)
+2. camera gamut → XYZ → **DaVinci Wide Gamut linear** (working space; `docs/CAMERAS.md`)
 3. **Balance** in linear: Gain (multiplicative, pivots highlights) + Offset (additive, even)
+   (`docs/BALANCE.md`)
 4. **Density** = HSV saturation gain in **DI-log** — NOT linear. Linear blows out saturated
-   reds; log enriches them. This was a real bug we fixed.
+   reds; log enriches them. This was a real bug we fixed. (`docs/DENSITY.md`)
 5. output primaries: DWG → Rec.709 linear (or keep DWG for DI/Linear encodes)
 6. **Lift/Gamma/Gain in the Rec.709 display curve** (linear toe). This is the big one —
    we tried linear and DI-log first and both were wrong. The grade curve **follows the
-   output encode**: Scene OETF for the Scene encode, **pure gamma 2.4 for the Gamma 2.4
-   encode** (`g24` flag; `r709_24_enc/dec`). Either way:
+   output encode**: Scene OETF for the Scene encode, **pure gamma 2.2/2.4 for those
+   encodes** (`dg` float, 0 = Scene OETF; `r709_g_enc/dec(x, g)` helpers — replaced the
+   old `g24` flag/`r709_24_enc/dec` when 2.2 landed). Either way:
    - **Gain** = multiply, pivots **black**
    - **Lift** = `lift*(1 - min(v,1))`, pivots **white**, clamped so **superwhites aren't amplified**
    - **Gamma** = power, pivots **black & white**
-   Matches Resolve's timeline primary wheels. `pg_lgg(...,g24)` helper.
+   Matches Resolve's timeline primary wheels. `pg_lgg(...,dg)` helper.
 7. output encode: **Rec.709 (Scene)** = scene OETF (linear toe), so Lift's taper reads
-   linearly on a Rec.709 (Scene) timeline. **Rec.709 (Gamma 2.4)** = pure 2.4 power for a
-   display-referred/broadcast timeline — this is the **param default** since the Gen 5 work;
+   linearly on a Rec.709 (Scene) timeline. **Rec.709 (Gamma 2.2)** = pure 2.2 power for
+   web/YouTube delivery — the **param default** since 2026-07-16 (user call: that's where
+   most exports land). **Rec.709 (Gamma 2.4)** = pure 2.4 power for broadcast/BT.1886;
    the grade curve in step 6 follows whichever is picked. (`encode`/`pg_enc`)
+   Explainer: `docs/GAMMA.md` (how-it-works only — the why-2.2 rationale lives HERE).
 8. LUT + trilinear sample + mix (done in processor/kernels, after encode)
 9. post-LUT **Trim**: exposure (stops) + contrast about 0.5 + **Highlight Rolloff**
    (`pg::softclip`, per-channel display-space soft clip, asymptote 1.0 — saturated
    practicals converge to white instead of clipping "neon"; gated to display-referred
-   output only: `enc <= 1 || active LUT` — never distorts Cineon/DI/Linear feeds)
+   output only: `enc <= 2 || active LUT` — never distorts Cineon/DI/Linear feeds)
 
 `P[13] = {temp, tint, density, lift, gamma, gain, offTemp, offTint, postExp, postCon, rawExp,
 rawTemp, rolloff}` (postExp/postCon/rolloff applied by the caller in the trim step, not
@@ -69,9 +81,15 @@ in a YRGB project — DWG/DI is NOT correct for them) · 1 BMD DWG/DI · 2 Sony 
 happy-path redesign: NOT a camera match but the user's preferred creative "smooth
 decode" for log footage (compressive inverse-EOTF = near-perfect rolloff, smooth color;
 "best results in the most situations"). (Indices were renumbered when Gen 5 moved to
-slot 0 — pre-renumber saved grades will show the wrong camera.) Encodes: 0 Rec.709 (Scene) · 1 Rec.709 (Gamma 2.4) — **the param default** ·
-2 Cineon Log · 3 DaVinci Intermediate · 4 Linear. **709 primaries for enc ≤ 2** (Scene/2.4/Cineon); DI &
-Linear keep DWG primaries. Film Look LUT auto-sets enc=2 (Cineon); Custom Look sets enc=0.
+slot 0 — pre-renumber saved grades will show the wrong camera.) Encodes: 0 Rec.709 (Scene) ·
+1 Rec.709 (Gamma 2.2) — **the param default** (web/YouTube delivery, 2026-07-16) · 2 Rec.709
+(Gamma 2.4) · 3 Cineon Log · 4 DaVinci Intermediate · 5 Linear. (2.2 was INSERTED at slot 1,
+shifting 2.4/Cineon/DI/Linear up one — grades saved before 2026-07-16 load one encode off;
+old default-2.4 grades become 2.2, film-look grades still render right because lutMode
+re-forces Cineon at render.) **709 primaries for enc ≤ 3** (Scene/2.2/2.4/Cineon); DI &
+Linear keep DWG primaries. Film Look LUT auto-sets enc=3 (Cineon); Custom Look sets enc=0.
+Explainers: `docs/GAMMA.md` (encodes/grade curve) · `docs/CAMERAS.md` (camera list, PQ
+smooth decode, stand-in gamuts).
 
 ## Presets (param layer only — no pipeline/kernel involvement)
 `preset` choice param (group "0 Preset"): 0 None/Reset · 1 Cinematic Film Emulation
@@ -88,7 +106,9 @@ for the PQ path. The PQ smooth-decode trick was discovered when the camera renum
 an old node decode Gen 5 as PQ. Presets set Rolloff 0 (PQ is already the shoulder).
 None/Reset does NOT restore Camera. The former Desert Day / Cinematic Smooth presets are
 gone (Smooth is now literally preset 1+default camera; Desert Day lives on as a built-in
-LUT only).
+LUT only). Explainer for the whole film path (Cineon, print stocks, recipe rationale):
+`docs/FILM-EMULATION.md`; LUT machinery (scan/parse/sample/mix, encode coupling):
+`docs/LUTS.md`.
 
 **Built-in LUTs** (six ship; Cinematic Landscape + Teal Orange are preset-backed):
 generated by
@@ -141,8 +161,8 @@ Branch per change → push → user opens PR and merges on GitHub (they do the m
 **ALWAYS check `git branch --show-current` before committing** — the user merges PRs
 mid-session, so the local checkout can silently be sitting on `main` (this bit us once:
 d8ef1d8 went straight to main; user OK'd it that time, pre-release, but never again).
-`main` is protected-in-practice; don't commit to it directly. Commits end with the
-`Co-Authored-By: Claude Opus 4.8 (1M context)` trailer. Merged so far: #1 look-first-and-hdr
+`main` is protected-in-practice; don't commit to it directly. Commits end with a
+`Co-Authored-By:` trailer naming the Claude model that did the work. Merged so far: #1 look-first-and-hdr
 (all the color fixes), #2 docs-and-distribution, #3 docs-release-process.
 
 ## Validation status / gotchas
@@ -150,10 +170,10 @@ d8ef1d8 went straight to main; user OK'd it that time, pre-release, but never ag
 - **Not HW-validated:** OpenCL correctness (CI compiles/tests only), CUDA (not built in CI).
 - **Camera matrices** other than Blackmagic are published/approx — flagged for on-footage validation.
 - **Can't auto-read the timeline colorspace** from OFX without becoming color-managed (which
-  would make Resolve override our CST). So Output Encode is manual; default Rec.709 (Gamma 2.4).
+  would make Resolve override our CST). So Output Encode is manual; default Rec.709 (Gamma 2.2).
 - HDR (HLG/PQ) is a **normalize, not a tone-map** — highlights can clip; a real shoulder is future work.
 - Required project setup (also in the plugin's Setup/Help group): DaVinci YRGB, Timeline
-  set to match Output Encode (default Rec.709 Gamma 2.4), clips left at camera log, no
+  set to match Output Encode (default Rec.709 Gamma 2.2), clips left at camera log, no
   CST/LUT before this node.
 - **Don't expect a pixel match against Resolve's "Gen 5 Film to Video" LUT** — "to Video"
   bakes in Blackmagic's contrast/tone curve, not a plain colorimetric conversion. The right
@@ -170,4 +190,6 @@ Cut `v0.1.0`; validate OpenCL/CUDA on real HW; per-camera gamut validation; HDR 
 branch `feature/rec709-gamma24` — validated in Resolve. In progress: camera 0 Blackmagic
 Gen 5 Film — now the default camera, list reordered so both Blackmagic entries lead —
 + default encode → Gamma 2.4, branch `feature/gen5-camera-g24-default` — needs visual
-verify on Pyxis footage vs a CST node.)
+verify on Pyxis footage vs a CST node. Superseded 2026-07-16: default encode is now
+Rec.709 Gamma 2.2 for web/YouTube delivery, branch `feature/gamma22-default`, encode
+indices renumbered — see `docs/GAMMA.md`.)
