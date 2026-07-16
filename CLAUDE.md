@@ -100,9 +100,12 @@ default) so there's no more "some presets change Camera, some don't" confusion; 
 names call out which LUT path they drive (Film Emulation = Resolve print stocks, Cineon
 path; Custom LUT = our built-in looks, Rec.709 path). Film Emulation presets share the
 user-validated Cinematic Film recipe (see below); Fuji falls back to Kodak when the
-stock is missing (`filmLutIndex()` by name fragment, -1 when absent). Custom LUT presets
-are neutral except Offset Temp -0.14 — the user's measured "happy medium" cool offset
-for the PQ path. The PQ smooth-decode trick was discovered when the camera renumber made
+stock is missing (`filmLutIndex()` by name fragment, -1 when absent). Custom LUT preset 3
+(Cinematic Landscape) is neutral except Offset Temp -0.14 — the user's measured "happy
+medium" cool offset for the PQ path. Preset 4 (Teal Orange) has its own on-footage recipe
+(user-tuned in Resolve, 2026-07-16): Offset Temp -0.073, Density -0.15, Lift 0.059,
+Gamma 1.222, Gain 1.691 — density backed off so the split-tone doesn't oversaturate,
+grade lifted + brightened into the look. The PQ smooth-decode trick was discovered when the camera renumber made
 an old node decode Gen 5 as PQ. Presets set Rolloff 0 (PQ is already the shoulder).
 None/Reset does NOT restore Camera. The former Desert Day / Cinematic Smooth presets are
 gone (Smooth is now literally preset 1+default camera; Desert Day lives on as a built-in
@@ -123,8 +126,9 @@ Sedona-LUT dependency is gone (was a third-party download — too much to ask of
 Desert Day + Cinematic Landscape were authored numerically and **user-validated on
 footage first try** (2026-07-14). The other four (Golden Hour · Teal Orange (uses the generator's
 `split` luminance split-tone) · Silver Bleach · Midnight Blue) are deliberately spread
-across the look-space so a default lands close — **NOT yet user-validated on footage**
-except Teal Orange-as-preset pending user check. Full authoring process + parameter
+across the look-space so a default lands close — **NOT yet user-validated on footage**,
+except Teal Orange, validated as a preset on footage 2026-07-16 (with its own preset
+recipe compensating around the LUT — see Preset mechanics above). Full authoring process + parameter
 reference: `docs/CREATING-LUTS.md` (LOOKS entry → regenerate → CMake copy list →
 optional preset via `findLookLut()`; user plans to add more looks over time).
 

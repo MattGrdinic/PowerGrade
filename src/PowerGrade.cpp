@@ -419,22 +419,26 @@ void PowerGrade::applyPreset(int p)
         m_PostExp->setValue(0.55);
         m_PostCon->setValue(1.0);
         m_Rolloff->setValue(0.0);
-    } else if (p == 3 || p == 4) {  // Custom LUT — 3: built-in Cinematic Landscape,
-                            // 4: built-in Teal Orange, through the PQ decode with the
-                            // user-validated cool offset (-0.14, the "happy medium").
-                            // Swap looks in the Look LUT dropdown below.
+    } else if (p == 3 || p == 4) {  // Custom LUT — 3: built-in Cinematic Landscape through
+                            // the PQ decode with the user-validated cool offset (-0.14,
+                            // the "happy medium"); 4: built-in Teal Orange with its own
+                            // on-footage recipe (tuned 2026-07-16): softer cool offset,
+                            // density backed off so the split-tone doesn't oversaturate,
+                            // grade lifted and brightened into the look. Swap looks in
+                            // the Look LUT dropdown below.
         int gi = 0, li = 0;
         const bool lut = findLookLut(p == 3 ? "powergrade cinematic landscape"
                                             : "powergrade teal orange", gi, li);
+        const bool teal = (p == 4);
         m_Camera->setValue(11);     // Rec.2100 PQ / ST.2084
-        m_OffTemp->setValue(-0.14);
+        m_OffTemp->setValue(teal ? -0.073 : -0.7);
         m_OffTint->setValue(0.0);
         m_Temp->setValue(0.0);
         m_Tint->setValue(0.0);
-        m_Density->setValue(0.0);
-        m_Lift->setValue(0.0);
-        m_Gamma->setValue(1.0);
-        m_Gain->setValue(1.0);
+        m_Density->setValue(teal ? -0.15 : 0.0);
+        m_Lift->setValue(teal ? 0.0 : 0.0);
+        m_Gamma->setValue(teal ? 1.0 : 1.0);
+        m_Gain->setValue(teal ? 1.0 : 1.0);
         if (lut) {
             m_LookGroup->setValue(gi);
             populateLookLut();
