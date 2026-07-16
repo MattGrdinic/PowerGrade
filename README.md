@@ -215,7 +215,7 @@ push into `params[]`, and read `P[n]` in `pg::process()` + the 3 kernels (mind t
 `setBytes` length, the OpenCL arg list/count, and the CUDA `cudaMalloc` size).
 
 **LUTs:** `CubeLUT.h` parses 3D `.cube` files; the host scans Resolve's LUT folder
-(`kFilmLutDir`) into a Film list and a grouped Look cascade, loads the selected `.cube`
+(`filmLutDir()`, per-platform) into a Film list and a grouped Look cascade, loads the selected `.cube`
 (cached by path), and passes `(data, size, mix)` to the processor. Sampling is trilinear
 in `apply_lut()` / `pg_sampleLUT()`.
 
@@ -231,9 +231,15 @@ cmake -S . -B build-cmake
 cmake --build build-cmake --config Release
 ```
 
-**GPU backends:** Metal + CPU are validated on Apple Silicon. OpenCL and CUDA are ported
-from the same math but are **best-effort / not yet hardware-validated** — see CI and the
-tests below. CUDA is compiled only where a CUDA toolkit is present.
+**GPU backends:** Metal + CPU are validated on Apple Silicon; CUDA is validated on an
+RTX 5090. OpenCL — the path AMD and Intel GPUs use — has been checked against the CPU
+pipeline on both NVIDIA and AMD hardware (worst deviation well under one 8-bit code
+value), but not yet inside Resolve on an AMD card.
+
+CUDA needs `-DBUILD_CUDA=ON` **and** a CUDA 13.x toolkit (12.x emits no Blackwell/sm_120
+code). Windows CI ships it on by default. Without it the plugin still loads and renders —
+Resolve just silently falls back to the CPU, which on an NVIDIA card is dramatically
+slower, so build the Windows plugin with CUDA unless you have a reason not to.
 
 ## Tests
 

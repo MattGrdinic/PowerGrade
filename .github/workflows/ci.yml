@@ -15,27 +15,62 @@ jobs:
       matrix:
         include:
           - { os: macos-14,      name: macos }
-          - { os: windows-latest, name: windows }
+          # Pinned, not windows-latest: that moved to VS 2026 in June 2026, and a
+          # CUDA toolkit only accepts host MSVC versions it knows about (nvcc hard-
+          # errors otherwise). VS 2022 + CUDA 13.2 is the combination validated on
+          # real hardware. Revisit when CUDA officially supports the VS 2026 host.
+          - { os: windows-2022,  name: windows }
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install OpenCL (Windows)
+      # The full toolkit, deliberately: no sub-packages list. Trimming it to
+      # nvcc/cudart/visual_studio_integration left cuda_runtime.h without the
+      # include/crt headers it pulls in ("Cannot open include file:
+      # 'crt/host_config.h'"). The extra install minutes beat guessing which
+      # sub-package a header hides in.
+      #
+      # Must stay on CUDA 13.x: -arch=all-major only emits SASS for the archs the
+      # toolkit knows, and 12.x stops at sm_90 — a 12.x build ships no code for
+      # Blackwell (sm_120), leaving Resolve to render the node on the CPU.
+      #
+      # This also supplies OpenCL (headers + OpenCL.lib), so there is no vcpkg
+      # step: vcpkg resolved to its *debug* OpenCL.lib in a Release build, and
+      # this matches the local setup the CUDA path was validated against.
+      - name: Install CUDA (Windows)
         if: runner.os == 'Windows'
-        run: vcpkg install opencl:x64-windows
+        uses: Jimver/cuda-toolkit@v0.2.35
+        with:
+          cuda: '13.2.0'
+          method: 'network'
 
       - name: Configure (macOS)
         if: runner.os == 'macOS'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
+      # No vcpkg toolchain: OpenCL comes from the CUDA toolkit installed above.
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_CUDA=ON
 
       - name: Build
         run: cmake --build build --config Release
 
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+
+      # A CUDA-less plugin still loads and renders — Resolve just silently falls
+      # back to the CPU — so nothing above would fail. Assert the shipped bundle
+      # really carries device code, including Blackwell (sm_120).
+      - name: Verify CUDA kernel is in the bundle (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $ofx = "build\PowerGrade.ofx.bundle\Contents\Win64\PowerGrade.ofx"
+          $elf = & "$env:CUDA_PATH\bin\cuobjdump.exe" --list-elf $ofx
+          Write-Host $elf
+          if (-not ($elf | Select-String -Quiet 'sm_120')) {
+            Write-Error "No sm_120 device code in $ofx - Resolve would render on the CPU."
+            exit 1
+          }
 
       - name: Package (macOS)
         if: runner.os == 'macOS'

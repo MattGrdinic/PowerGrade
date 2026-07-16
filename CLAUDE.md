@@ -24,7 +24,7 @@ sampling, built-ins) · `FILM-EMULATION.md` (Cineon → print-stock path + prese
 color math. The three GPU kernels **mirror it exactly**:
 - `src/MetalKernel.mm`  (Apple — the one path validated in Resolve)
 - `src/OpenCLKernel.cpp` (kernel is a C string; CI-green on Windows, not correctness-tested on HW)
-- `src/CudaKernel.cu`   (ported, only built with `-DBUILD_CUDA=ON`)
+- `src/CudaKernel.cu`   (`-DBUILD_CUDA=ON`; ON in Windows CI, validated on an RTX 5090)
 
 **Any math change is a 4-file edit.** Keep helper names/formulas identical so they diff
 cleanly. Param-count changes also need: Metal `setBytes` length, OpenCL `clSetKernelArg`
@@ -154,6 +154,18 @@ sudo cp -fr PowerGrade.ofx.bundle /Library/OFX/Plugins/
 After installing, the user restarts Resolve and checks Color page → Effects → OpenFX →
 Power Grade. Only the user can visually verify in Resolve; we can't from here.
 
+**The user's Windows box** (Ryzen + RTX 5090) has no cmake/vcpkg on PATH — use VS Build
+Tools' bundled copy, and note the CUDA toolkit supplies OpenCL, so vcpkg isn't needed
+locally (CI still uses it). Resolve must be closed to overwrite the plugin; the copy needs
+elevation, which we don't have — shell out via `Start-Process -Verb RunAs` and the user
+clicks the UAC prompt.
+```powershell
+$cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+& $cmake -S c:\src\PowerGrade -B c:\src\PowerGrade\build-cuda -G "Visual Studio 17 2022" -A x64 -DBUILD_CUDA=ON
+& $cmake --build c:\src\PowerGrade\build-cuda --config Release   # -> build-cuda\PowerGrade.ofx.bundle
+# install target: %CommonProgramFiles%\OFX\Plugins\  (NOT the macOS /Library/OFX/Plugins)
+```
+
 ## Deploy / release (tag-driven)
 CI = `.github/workflows/ci.yml`. Every push builds+tests macOS + Windows. Pushing a
 **`v*` tag** additionally runs the `release` job → packages per-OS zip (bundle + installer
@@ -171,8 +183,48 @@ d8ef1d8 went straight to main; user OK'd it that time, pre-release, but never ag
 
 ## Validation status / gotchas
 - **Validated in Resolve:** Metal + CPU on the user's M3 Max, Rec.709 (Scene) / DaVinci YRGB project.
-- **Not HW-validated:** OpenCL correctness (CI compiles/tests only), CUDA (not built in CI).
+  CUDA perf on the user's Windows box (Ryzen + RTX 5090, 2026-07-16) — real-time; colour
+  output not yet A/B'd against the Metal path.
+- **OpenCL:** kernel checked against `pg::process` on real HW (2026-07-16) on both an
+  RTX 5090 and an AMD gfx1036 iGPU, all 12 cameras x 6 encodes: worst deviation
+  ~1.7e-3 in display space (under half an 8-bit code value), which is float rounding, not
+  a mirror bug — see the Log3G10 note below. **Still not validated inside Resolve on an
+  AMD card** (no AMD dGPU here); the harness drives `RunOpenCLKernelBuffers` directly.
+- **Don't chase small GPU-vs-CPU deltas with an absolute tolerance.** Use relative, or the
+  wide-range cameras and enc=5 (Linear, values ~50-100) drown out everything else. Where
+  both vendors agree with each other but differ from the CPU, suspect precision, not math:
+  e.g. camera 6 (RED Log3G10) decodes `(pow(10,x/0.224282)-1)/155.975327 - 0.01`, and at
+  small x that `-1` cancels two near-equal numbers, so host `powf` (more internal
+  precision) and OpenCL single-precision `pow` legitimately diverge.
+- **Advertise only backends that are actually compiled.** `describeInContext` flags are
+  what the host picks a GPU path from, and once it picks there is **no CPU fallback**
+  (`ofxsProcessing.h` `process()`). Until 2026-07-16 the plugin called
+  `setSupportsOpenCLBuffersRender(true)` unconditionally while the body of
+  `processImagesOpenCL()` sat behind `OFX_SUPPORTS_OPENCLRENDER` — a symbol **nothing ever
+  defined** (the Makefile/CMake define the unrelated `OFX_SUPPORTS_OPENGL RENDER`; the
+  near-identical name is the trap). It compiled to an empty function, so any AMD/Intel GPU
+  — or anyone setting Resolve's GPU mode to OpenCL — got an unwritten destination buffer:
+  a black frame. macOS never hit it because Resolve drives Metal there. Each
+  `setSupports*Render` call is now behind the same `#ifdef` that guards its implementation.
+- **CUDA is a silent-fallback trap.** A plugin built without `-DBUILD_CUDA=ON`, or with a
+  CUDA 12.x toolkit (tops out at sm_90, so nothing for Blackwell/sm_120), still loads and
+  renders fine — Resolve just quietly renders the node on the CPU. That shipped once and
+  read as "the plugin is incredibly slow on Windows" (2026-07-16). Guards now: Windows CI
+  passes `-DBUILD_CUDA=ON` with CUDA 13.2, and a `cuobjdump --list-elf` step fails the
+  build if sm_120 is missing from the bundle. Diagnose with
+  `cuobjdump --list-elf <plugin>.ofx` — "does not contain device code" means CPU fallback.
+  Keep `CUDA_ARCHITECTURES` as the bare `all-major` keyword (nvcc expands it against the
+  real toolkit); do NOT expand it from `CMAKE_CUDA_ARCHITECTURES_ALL_MAJOR`, which is baked
+  into CMake and lags it (3.31 still lists CUDA 13's removed `compute_50`, stops at 90).
+  Separable compilation must stay OFF or the `-dlink` strips the fatbinary's PTX.
 - **Camera matrices** other than Blackmagic are published/approx — flagged for on-footage validation.
+- **Resolve's LUT folder is per-platform** (`filmLutDir()`): Windows adds a `Support` level
+  (`%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\LUT`), macOS doesn't
+  (`/Library/Application Support/…/DaVinci Resolve/LUT`), Linux is `/opt/resolve/LUT`. It
+  was hardcoded to the macOS path until 2026-07-16 → empty Film list on Windows, no error,
+  Film Emulation presets silently rendered with no print LUT. Same class of bug as the CUDA
+  fallback: **a missing resource degrades silently instead of failing.** Any new
+  host-path/resource lookup gets the per-platform treatment + a way to tell it found nothing.
 - **Can't auto-read the timeline colorspace** from OFX without becoming color-managed (which
   would make Resolve override our CST). So Output Encode is manual; default Rec.709 (Gamma 2.2).
 - HDR (HLG/PQ) is a **normalize, not a tone-map** — highlights can clip; a real shoulder is future work.
@@ -189,7 +241,12 @@ not yet as smooth as the "Blackmagic Gen 5 Film to Video" LUT, which is the stat
 for the default Gen 5 path (Cinematic Film preset). Candidates: tune softclip knee/curve,
 or a scene-linear shoulder before encode instead of (or blended with) the display-space clip.
 
-Cut `v0.1.0`; validate OpenCL/CUDA on real HW; per-camera gamut validation; HDR tone-map
+**CUDA colour A/B (opened 2026-07-16):** the CUDA path is now live and fast on the user's
+5090, but only *perf* was checked — its output has never been compared against the
+validated Metal/CPU result. `CudaKernel.cu` was written blind and had never even been
+compiled before this. Worth a same-frame A/B (mac vs Windows) before `v0.1.0`.
+
+Cut `v0.1.0`; validate OpenCL on real HW; per-camera gamut validation; HDR tone-map
 (highlight roll-off). (Done: Rec.709 Gamma 2.4 output with grade-space-following LGG,
 branch `feature/rec709-gamma24` — validated in Resolve. In progress: camera 0 Blackmagic
 Gen 5 Film — now the default camera, list reordered so both Blackmagic entries lead —

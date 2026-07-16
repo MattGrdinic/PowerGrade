@@ -26,10 +26,16 @@ still shows the user's choice; it just isn't consulted while a LUT is active.
 
 `scanLuts()` (host side, run once at describe time) builds two lists:
 
-- **`s_FilmLuts`** — every `.cube` under Resolve's LUT folder
-  (`/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT`), preferring the
+- **`s_FilmLuts`** — every `.cube` under Resolve's LUT folder, preferring the
   `Film Looks` subfolder when it exists. These are Resolve's print-film emulations
-  (Kodak 2383, Fujifilm 3513DI, …).
+  (Kodak 2383, Fujifilm 3513DI, …). Resolve installs that folder in a different place per
+  platform, so `filmLutDir()` picks it at runtime — it was hardcoded to the macOS path
+  until 2026-07-16, which left Windows with an **empty Film list and no error**, so the
+  Film Emulation presets silently rendered with no print LUT:
+  - **Windows** — `%PROGRAMDATA%\Blackmagic Design\DaVinci Resolve\Support\LUT`
+    (note the extra `Support` level that macOS doesn't have)
+  - **macOS** — `/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT`
+  - **Linux** — `/opt/resolve/LUT`
 - **`s_LookGroups`** — a grouped cascade for the Custom path:
   1. **"PowerGrade (built-in)"** is always the *first* group: the `.cube` files shipped
      inside the bundle itself (see §5).

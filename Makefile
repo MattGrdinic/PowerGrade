@@ -4,7 +4,10 @@ UNAME := $(shell uname -s)
 
 SDK      := third_party/openfx
 INCLUDES := -I$(SDK)/include -I$(SDK)/Support/include -I$(SDK)/Support/Plugins/include -Isrc
-CXXFLAGS := --std=c++20 -fvisibility=hidden $(INCLUDES) -DOFX_SUPPORTS_OPENGLRENDER
+# OFX_SUPPORTS_OPENCLRENDER guards the body of processImagesOpenCL() — undefined,
+# the OpenCL render compiles to an empty function while still being advertised.
+# It is NOT the same flag as the (unrelated) OpenGL one; the names are the trap.
+CXXFLAGS := --std=c++20 -fvisibility=hidden $(INCLUDES) -DOFX_SUPPORTS_OPENGLRENDER -DOFX_SUPPORTS_OPENCLRENDER
 BUILD    := build
 BUNDLE   := PowerGrade.ofx.bundle
 
