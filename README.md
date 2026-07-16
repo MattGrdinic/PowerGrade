@@ -224,7 +224,7 @@ in `apply_lut()` / `pg_sampleLUT()`.
 ```bash
 # macOS (universal arm64+x86_64) / Linux
 make                 # -> PowerGrade.ofx.bundle
-make install         # -> /Library/OFX/Plugins   (needs sudo)
+sudo make install         # -> /Library/OFX/Plugins   (needs sudo)
 
 # any platform, via CMake
 cmake -S . -B build-cmake

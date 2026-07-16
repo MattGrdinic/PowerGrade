@@ -431,14 +431,14 @@ void PowerGrade::applyPreset(int p)
                                             : "powergrade teal orange", gi, li);
         const bool teal = (p == 4);
         m_Camera->setValue(11);     // Rec.2100 PQ / ST.2084
-        m_OffTemp->setValue(teal ? -0.073 : -0.14);
+        m_OffTemp->setValue(teal ? -0.073 : -0.7);
         m_OffTint->setValue(0.0);
         m_Temp->setValue(0.0);
         m_Tint->setValue(0.0);
         m_Density->setValue(teal ? -0.15 : 0.0);
-        m_Lift->setValue(teal ? 0.059 : 0.0);
-        m_Gamma->setValue(teal ? 1.222 : 1.0);
-        m_Gain->setValue(teal ? 1.691 : 1.0);
+        m_Lift->setValue(teal ? 0.0 : 0.0);
+        m_Gamma->setValue(teal ? 1.0 : 1.0);
+        m_Gain->setValue(teal ? 1.0 : 1.0);
         if (lut) {
             m_LookGroup->setValue(gi);
             populateLookLut();
