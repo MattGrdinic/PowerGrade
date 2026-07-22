@@ -435,8 +435,9 @@ void PowerGrade::applyPreset(int p)
         m_PostCon->setValue(1.0);
         m_Rolloff->setValue(0.0);
     } else if (p == 3 || p == 4) {  // Custom LUT — 3: built-in Cinematic Landscape through
-                            // the PQ decode with the user-validated cool offset (-0.14,
-                            // the "happy medium"); 4: built-in Teal Orange with its own
+                            // the PQ decode with the user-validated cool offset (-0.112)
+                            // plus a light trim (post-exp +0.023, contrast 0.965), tuned
+                            // on footage 2026-07-21; 4: built-in Teal Orange with its own
                             // on-footage recipe (tuned 2026-07-16): softer cool offset,
                             // density backed off so the split-tone doesn't oversaturate,
                             // grade lifted and brightened into the look. Swap looks in
@@ -446,7 +447,7 @@ void PowerGrade::applyPreset(int p)
                                             : "powergrade teal orange", gi, li);
         const bool teal = (p == 4);
         m_Camera->setValue(11);     // Rec.2100 PQ / ST.2084
-        m_OffTemp->setValue(teal ? -0.073 : -0.7);
+        m_OffTemp->setValue(teal ? -0.073 : -0.112);
         m_OffTint->setValue(0.0);
         m_Temp->setValue(0.0);
         m_Tint->setValue(0.0);
@@ -464,8 +465,8 @@ void PowerGrade::applyPreset(int p)
             m_LutMode->setValue(0);
             m_LutMix->setValue(1.0);
         }
-        m_PostExp->setValue(0.0);
-        m_PostCon->setValue(1.0);
+        m_PostExp->setValue(teal ? 0.0 : 0.023);
+        m_PostCon->setValue(teal ? 1.0 : 0.965);
         m_Rolloff->setValue(0.0);
     } else {                // None / Reset Look
         m_OffTemp->setValue(0.0);
