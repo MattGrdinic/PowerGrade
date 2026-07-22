@@ -300,8 +300,8 @@ release should represent a known-good `main`.
 ```bash
 
 git checkout main && git pull          # be on the merged, green main
-git tag v0.1.0                         # semantic version, must start with "v"
-git push origin v0.1.0                 # this push is what triggers the release
+git tag v1.0.3                         # semantic version, must start with "v"
+git push origin v1.0.3                 # this push is what triggers the release
 ```
 
 **What it does** (`.github/workflows/ci.yml`, the `release` job — it's skipped on normal
