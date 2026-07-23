@@ -126,8 +126,8 @@ static std::string bundleLutDir()
 }
 
 // Find a Look LUT by case-insensitive name fragment across all groups. Fills (group, lut)
-// indices when found. Used by the Vivid Landscape preset to pick up IWLTBAP's free
-// "Sedona" LUT when the user has it installed in Resolve's LUT folder.
+// indices when found. Used by the Custom LUT presets to select the matching built-in look
+// (shipped in the bundle, so this normally resolves on any machine).
 static bool findLookLut(const char* fragment, int& groupIdx, int& lutIdx)
 {
     for (size_t g = 0; g < s_LookGroups.size(); ++g)

@@ -86,7 +86,6 @@ The shipped looks are generated, not hand-painted: each one is a small set of tu
 numbers in [luts/generate_luts.py](luts/generate_luts.py). The full authoring process —
 design constraints, every parameter, and the step-by-step for adding a new look and
 preset — is documented in [docs/CREATING-LUTS.md](docs/CREATING-LUTS.md).
-- **None / Reset Look** — returns the look params to neutral.
 
 **1 · Input Transform**
 - **Camera** — how the clip is decoded into the working space. The default,
@@ -189,8 +188,10 @@ deliberate** — this is where most of the correctness lives:
 | 8 | **LUT + mix** | output space | trilinear 3D-LUT sample, then lerp by mix (done in the processor / kernels) |
 | 9 | **Trim** | output (display) space | post-LUT exposure (stops) + contrast about 0.5 + per-channel highlight roll-off (display-referred only) |
 
-Parameter vector `P[10]` = `{temp, tint, density, lift, gamma, gain, offTemp, offTint,
-postExp, postCon}`; `camera` and `outEncode` are passed separately as ints.
+Parameter vector `P[13]` = `{temp, tint, density, lift, gamma, gain, offTemp, offTint,
+postExp, postCon, rawExp, rawTemp, rolloff}`; `camera` and `outEncode` are passed
+separately as ints. `postExp` / `postCon` / `rolloff` are applied by the caller in the
+trim step (after the LUT), not inside `pg::process()`.
 
 ## Golden rule: the CPU header is the source of truth
 
